@@ -47,7 +47,7 @@ public class Window {
         }
         let setup = xcb_get_setup(connection)
         var iter = xcb_setup_roots_iterator(setup)
-        for _ in 1...screenp {
+        for _ in 0..<screenp {
             xcb_screen_next(&iter)
         }
         let screen = iter.data!
