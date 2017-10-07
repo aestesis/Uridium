@@ -1,2 +1,2 @@
 # Uridium
-Metal wrapper on vulkan
+swift metal wrapper on vulkan

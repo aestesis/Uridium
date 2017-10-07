@@ -8,8 +8,8 @@ let package = Package(
         .library(name: "Uridium",targets: ["Uridium"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/aestesis/X11.git", .exact("1.0.2")),
-        .package(url: "https://github.com/aestesis/Vulkan.git", .exact("1.0.2"))
+        .package(url: "https://github.com/aestesis/xcb.git", from:"1.0.0"),
+        .package(url: "https://github.com/aestesis/Vulkan.git", from:"1.0.3")
     ],
     targets: [
         .target(name: "Uridium",dependencies: [])
