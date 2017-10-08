@@ -9,7 +9,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/aestesis/xcb.git", from:"1.0.0"),
-        .package(url: "https://github.com/aestesis/Vulkan.git", from:"1.0.3")
+        .package(url: "https://github.com/aestesis/Vulkan.git", from:"1.0.4")
     ],
     targets: [
         .target(name: "Uridium",dependencies: [])

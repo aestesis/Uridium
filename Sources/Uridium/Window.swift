@@ -38,7 +38,6 @@ public class Window {
         self.width = width
         self.height = height
         var screenp:Int32 = 0
-        //let connection:xcb_connection_t
         connection = xcb_connect(nil, &screenp)
         let error = xcb_connection_has_error(connection)
         if error > 0 {
@@ -64,7 +63,6 @@ public class Window {
         let wmDeleteReply = xcb_intern_atom_reply(connection, wmDeleteCookie, nil)
         let wmProtocolsReply = xcb_intern_atom_reply(connection, wmProtocolsCookie, nil)
         wmDeleteWin = wmDeleteReply!.pointee.atom
-        //let wmProtocols = wmProtocolsReply!.pointee.atom
         xcb_change_property(connection, UInt8(XCB_PROP_MODE_REPLACE.rawValue), window,wmProtocolsReply!.pointee.atom, 4, 32, 1, &wmDeleteReply!.pointee.atom)
         
         xcb_map_window(connection, window)
@@ -88,5 +86,9 @@ public class Window {
         }
         xcb_destroy_window(connection, window)
     }
-    
+   func createSurface() {
+       let scinfo = VkXcbSurfaceCreateInfoKHR()
+       //let zob = VkDisplaySurfaceCreateInfoKHR()
+
+   }
 }
