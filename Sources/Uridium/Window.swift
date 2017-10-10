@@ -24,15 +24,16 @@ import Foundation
 public class Window {
     var title:String {
 		didSet {
-	        xcb_change_property(connection,UInt8(XCB_PROP_MODE_REPLACE.rawValue),window,XCB_ATOM_WM_NAME.rawValue,XCB_ATOM_STRING.rawValue,8,UInt32(strlen(title)),title)
+	        xcb_change_property(connection,UInt8(XCB_PROP_MODE_REPLACE.rawValue),windowId,XCB_ATOM_WM_NAME.rawValue,XCB_ATOM_STRING.rawValue,8,UInt32(strlen(title)),title)
 		}
 	}
     var width:Int
     var height:Int
     let connection:OpaquePointer
-    let window:UInt32
+    let windowId:UInt32
     let wmDeleteWin : xcb_atom_t
     public var running = false
+    public var engine : Engine? = nil
     public init?(title:String,width:Int,height:Int) {
         self.title = title
         self.width = width
@@ -51,22 +52,24 @@ public class Window {
         }
         let screen = iter.data!
         NSLog("screen: \(screen.pointee.root) w:\(screen.pointee.width_in_pixels) h:\(screen.pointee.height_in_pixels)")
-        window = xcb_generate_id(connection)
+        windowId = xcb_generate_id(connection)
         let emask:UInt32 = XCB_CW_BACK_PIXEL.rawValue | XCB_CW_EVENT_MASK.rawValue
         let vl :[UInt32] = [screen.pointee.black_pixel, 0]
         let visual = screen.pointee.root_visual
-        xcb_create_window(connection,UInt8(XCB_COPY_FROM_PARENT),window,screen.pointee.root,100,100,UInt16(width),UInt16(height),0,UInt16(XCB_WINDOW_CLASS_INPUT_OUTPUT.rawValue),visual,emask,vl)
-        xcb_change_property(connection,UInt8(XCB_PROP_MODE_REPLACE.rawValue),window,XCB_ATOM_WM_NAME.rawValue,XCB_ATOM_STRING.rawValue,8,UInt32(strlen(title)),title)
+        xcb_create_window(connection,UInt8(XCB_COPY_FROM_PARENT),windowId,screen.pointee.root,100,100,UInt16(width),UInt16(height),0,UInt16(XCB_WINDOW_CLASS_INPUT_OUTPUT.rawValue),visual,emask,vl)
+        xcb_change_property(connection,UInt8(XCB_PROP_MODE_REPLACE.rawValue),windowId,XCB_ATOM_WM_NAME.rawValue,XCB_ATOM_STRING.rawValue,8,UInt32(strlen(title)),title)
         
         let wmDeleteCookie = xcb_intern_atom(connection, 0, UInt16(strlen("WM_DELETE_WINDOW")), "WM_DELETE_WINDOW")
         let wmProtocolsCookie = xcb_intern_atom(connection, 0, UInt16(strlen("WM_PROTOCOLS")), "WM_PROTOCOLS")
         let wmDeleteReply = xcb_intern_atom_reply(connection, wmDeleteCookie, nil)
         let wmProtocolsReply = xcb_intern_atom_reply(connection, wmProtocolsCookie, nil)
         wmDeleteWin = wmDeleteReply!.pointee.atom
-        xcb_change_property(connection, UInt8(XCB_PROP_MODE_REPLACE.rawValue), window,wmProtocolsReply!.pointee.atom, 4, 32, 1, &wmDeleteReply!.pointee.atom)
+        xcb_change_property(connection, UInt8(XCB_PROP_MODE_REPLACE.rawValue), windowId,wmProtocolsReply!.pointee.atom, 4, 32, 1, &wmDeleteReply!.pointee.atom)
         
-        xcb_map_window(connection, window)
+        xcb_map_window(connection, windowId)
         xcb_flush(connection)
+
+        engine = Engine(window:self)
     }
     public func renderLoop() {
         running = true
@@ -84,11 +87,7 @@ public class Window {
                 free(event)
             }
         }
-        xcb_destroy_window(connection, window)
+        engine = nil
+        xcb_destroy_window(connection, windowId)
     }
-   func createSurface() {
-       let scinfo = VkXcbSurfaceCreateInfoKHR()
-       //let zob = VkDisplaySurfaceCreateInfoKHR()
-
-   }
 }
