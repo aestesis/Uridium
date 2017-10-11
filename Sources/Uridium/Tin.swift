@@ -20,7 +20,7 @@
 import Vulkan
 import Foundation
 
-public class Engine {
+public class Tin {
 
     public class Device {
         public var physicalDevice:VkPhysicalDevice
@@ -60,9 +60,9 @@ public class Engine {
         }
     }
     public class CommandBuffer {
-        let engine:Engine
+        let engine:Tin
         var cb:VkCommandBuffer?
-        public init?(engine:Engine) {
+        public init?(engine:Tin) {
             self.engine = engine
             var setupBufferInfo = VkCommandBufferAllocateInfo()
             setupBufferInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO
@@ -198,8 +198,8 @@ public class Engine {
         appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO
         appInfo.apiVersion = makeVersion(1, 0, 43)
         appInfo.pNext = nil
-        appInfo.pApplicationName = UnsafePointer<Int8>(strdup(app))
-        appInfo.pEngineName = UnsafePointer<Int8>(strdup("uridium"))
+        appInfo.pApplicationName = UnsafePointer(strdup(app))
+        appInfo.pEngineName = UnsafePointer(strdup("uridium"))
         var icInfo = VkInstanceCreateInfo()
         icInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO
         icInfo.pNext = nil
@@ -220,6 +220,10 @@ public class Engine {
                 NSLog("Vulkan: Instance error: \(result)")
             }
         }
+        free(UnsafeMutableRawPointer(mutating:appInfo.pApplicationName))
+        free(UnsafeMutableRawPointer(mutating:appInfo.pEngineName))
+        free(UnsafeMutableRawPointer(mutating:ext[0]))
+        free(UnsafeMutableRawPointer(mutating:ext[1]))
         return result == VK_SUCCESS
     }
     func createSurface() {

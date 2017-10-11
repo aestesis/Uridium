@@ -1,2 +1,7 @@
 # Uridium
-swift metal wrapper on vulkan
+swift metal like api on vulkan/xcb
+
+## TODOs
+- vulkan/wayland
+- vulkan/android
+- vulkan/windows

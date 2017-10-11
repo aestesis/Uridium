@@ -22,7 +22,6 @@ import Vulkan
 import Foundation
 
 public class Window {
-    public var idle = true
     var title:String {
 		didSet {
 	        xcb_change_property(connection,UInt8(XCB_PROP_MODE_REPLACE.rawValue),windowId,XCB_ATOM_WM_NAME.rawValue,XCB_ATOM_STRING.rawValue,8,UInt32(strlen(title)),title)
@@ -33,8 +32,8 @@ public class Window {
     let connection:OpaquePointer
     let windowId:UInt32
     let wmDeleteWin : xcb_atom_t
-    public var running = false
-    public var engine : Engine? = nil
+    public private(set) var running = false
+    public private(set) var engine : Tin? = nil
     public init?(title:String,width:Int,height:Int) {
         self.title = title
         self.width = width
@@ -70,14 +69,11 @@ public class Window {
         xcb_map_window(connection, windowId)
         xcb_flush(connection)
 
-        engine = Engine(window:self)
+        engine = Tin(window:self)
     }
     public func renderLoop() {
         running = true
         while running {
-            if idle {
-                Thread.sleep(forTimeInterval:TimeInterval(0.01))
-            }
             while let event = xcb_poll_for_event(connection) {
                 switch event.pointee.response_type & ~0x80 {
                 case UInt8(XCB_CLIENT_MESSAGE):
@@ -91,26 +87,31 @@ public class Window {
                 free(event)
             }
             render()
+            idle()
         }
         engine = nil
         xcb_destroy_window(connection, windowId)
     }
-    var lastFrame = Double(Date.timeIntervalSinceReferenceDate)
-    var fps = 60.0
-    var nframes = 0
     func render() {
         if let engine = engine {
             if engine.aquire() {
                 engine.present()
             }
         }
+    }
+    var lastFrame = Double(Date.timeIntervalSinceReferenceDate)
+    var fps = 60.0
+    var nframes = 0
+    func idle() {
         let t = Double(Date.timeIntervalSinceReferenceDate)
         let dt = t - lastFrame
-        fps = fps*0.5 + (1/dt) * 0.5
         lastFrame = t
+        fps = fps*0.5 + (1/dt) * 0.5
         if nframes & 511 == 0 {
             NSLog("Vulkan: fps \(fps)")
         }
         nframes += 1
+        let idle = (fps <= 59.0) ? 0.001 : 0.01
+        Thread.sleep(forTimeInterval:TimeInterval(idle))
     }
 }
