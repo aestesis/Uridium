@@ -22,6 +22,7 @@ import Vulkan
 import Foundation
 
 public class Window {
+    public var idle = true
     var title:String {
 		didSet {
 	        xcb_change_property(connection,UInt8(XCB_PROP_MODE_REPLACE.rawValue),windowId,XCB_ATOM_WM_NAME.rawValue,XCB_ATOM_STRING.rawValue,8,UInt32(strlen(title)),title)
@@ -74,7 +75,10 @@ public class Window {
     public func renderLoop() {
         running = true
         while running {
-            if let event = xcb_wait_for_event(connection) {
+            if idle {
+                Thread.sleep(forTimeInterval:TimeInterval(0.01))
+            }
+            while let event = xcb_poll_for_event(connection) {
                 switch event.pointee.response_type & ~0x80 {
                 case UInt8(XCB_CLIENT_MESSAGE):
 					let cm = UnsafeRawPointer(event).bindMemory(to: xcb_client_message_event_t.self, capacity: 1)
@@ -86,8 +90,27 @@ public class Window {
                 }
                 free(event)
             }
+            render()
         }
         engine = nil
         xcb_destroy_window(connection, windowId)
+    }
+    var lastFrame = Double(Date.timeIntervalSinceReferenceDate)
+    var fps = 60.0
+    var nframes = 0
+    func render() {
+        if let engine = engine {
+            if engine.aquire() {
+                engine.present()
+            }
+        }
+        let t = Double(Date.timeIntervalSinceReferenceDate)
+        let dt = t - lastFrame
+        fps = fps*0.5 + (1/dt) * 0.5
+        lastFrame = t
+        if nframes & 511 == 0 {
+            NSLog("Vulkan: fps \(fps)")
+        }
+        nframes += 1
     }
 }

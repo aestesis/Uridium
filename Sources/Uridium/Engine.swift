@@ -79,6 +79,7 @@ public class Engine {
             }
         }
         public func submit() {
+            vkEndCommandBuffer(cb)
             var submitInfo=VkSubmitInfo()
             submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO
             submitInfo.commandBufferCount = 1
@@ -164,6 +165,9 @@ public class Engine {
     }
     deinit {
         NSLog("Vulkan: destroy")
+        if let device = logicalDevice {
+            vkDeviceWaitIdle(device)
+        }
         if instance != nil {
             if swapchain != nil {
                 destroySwapchain()
@@ -378,7 +382,6 @@ public class Engine {
                                 cb.setImageLayout(image:image!,aspects:VK_IMAGE_ASPECT_COLOR_BIT.rawValue,oldLayout:VK_IMAGE_LAYOUT_UNDEFINED,newLayout:VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
                             }
                             cb.submit()
-                            NSLog("Vulkan: command buffer for images layout OK")
                         }
                         for image in images {
                             var imageCreateInfo = VkImageViewCreateInfo()
@@ -427,7 +430,7 @@ public class Engine {
         for i in images {
             vkDestroyFramebuffer(logicalDevice, i.framebuffer, nil)
             vkDestroyImageView(logicalDevice, i.view, nil)
-            vkDestroyImage(logicalDevice, i.image, nil)
+            // i.image, handled by the swapchain, no destroy...
         }
         images.removeAll()
         vkDestroySwapchainKHR(logicalDevice,swapchain,nil)
