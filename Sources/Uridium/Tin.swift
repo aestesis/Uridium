@@ -1,5 +1,5 @@
 //
-//  Uridium.swift
+//  Tin.swift
 //  Uridium
 //
 //  Created by renan jegouzo on 12/10/2017.
@@ -209,7 +209,7 @@ public class Tin {
         ext.withUnsafeBufferPointer { pext in
             icInfo.enabledExtensionCount = UInt32(pext.count)
             icInfo.ppEnabledExtensionNames = pext.baseAddress
-            icInfo.pApplicationInfo = UnsafePointer(UnsafeMutablePointer<VkApplicationInfo>(mutating:&appInfo))
+            icInfo.pApplicationInfo = UnsafePointer(UnsafeMutablePointer(&appInfo))
             result = vkCreateInstance(&icInfo,nil,&instance)
             switch result {
                 case VK_ERROR_INCOMPATIBLE_DRIVER:
