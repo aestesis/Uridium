@@ -136,6 +136,11 @@ public class Tin {
             let dstFlags:VkPipelineStageFlags  = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT.rawValue
             vkCmdPipelineBarrier(cb, srcFlags, dstFlags, 0, 0, nil, 0, nil, 1, &imageBarrier);
         }
+        public class RenderCommandEncoder {
+            public init() {
+                
+            }
+        }
     }
 
     var window:Window
