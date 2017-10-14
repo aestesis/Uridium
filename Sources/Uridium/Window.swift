@@ -95,7 +95,7 @@ public class Window {
     func render() {
         if let engine = engine {
             if engine.aquire() {
-                engine.present()
+                _ = engine.present()
             }
         }
     }
