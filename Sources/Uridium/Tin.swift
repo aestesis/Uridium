@@ -138,7 +138,10 @@ public class Tin {
         }
         public class RenderCommandEncoder {
             public init() {
-                
+            }
+        }
+        public class Texture {
+            public init() {
             }
         }
     }
