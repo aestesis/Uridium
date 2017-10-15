@@ -21,14 +21,14 @@ import xcb
 import Vulkan
 import Foundation
 
-public class Window {
-    var title:String {
+open class Window {
+    open var title:String {
 		didSet {
 	        xcb_change_property(connection,UInt8(XCB_PROP_MODE_REPLACE.rawValue),windowId,XCB_ATOM_WM_NAME.rawValue,XCB_ATOM_STRING.rawValue,8,UInt32(strlen(title)),title)
 		}
 	}
-    var width:Int
-    var height:Int
+    public var width:Int
+    public var height:Int
     let connection:OpaquePointer
     let windowId:UInt32
     let wmDeleteWin : xcb_atom_t
@@ -86,18 +86,18 @@ public class Window {
                 }
                 free(event)
             }
-            render()
+            if let engine = engine {
+                if engine.aquire() {
+                    render()
+                    _ = engine.present()
+                }
+            }
             idle()
         }
         engine = nil
         xcb_destroy_window(connection, windowId)
     }
-    func render() {
-        if let engine = engine {
-            if engine.aquire() {
-                _ = engine.present()
-            }
-        }
+    open func render() {
     }
     var lastFrame = Double(Date.timeIntervalSinceReferenceDate)
     var fps = 60.0
