@@ -20,16 +20,6 @@
 import Vulkan
 import Foundation
 
-func iterate<C,R>(_ t:C, block:(Int,Any)->R) { // itterate tupple
-    let mirror = Mirror(reflecting: t)
-    for (index,attr) in mirror.children.enumerated() {
-        if let property_name = attr.label as String! {
-                block(index,attr.value)
-        }
-    }
-}
-
-
 public class Tin {
     public class Device {
         public struct MemoryProperties {
@@ -731,3 +721,11 @@ public class Tin {
         return false
     }
 }
+
+func iterate<C>(_ t:C, block:(Int,Any)->()) { // itterate tupple
+    let mirror = Mirror(reflecting: t)
+    for (index,attr) in mirror.children.enumerated() {
+        block(index,attr.value)
+    }
+}
+
