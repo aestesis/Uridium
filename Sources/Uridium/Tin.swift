@@ -20,9 +20,26 @@
 import Vulkan
 import Foundation
 
-public class Tin {
+func iterate<C,R>(_ t:C, block:(Int,Any)->R) { // itterate tupple
+    let mirror = Mirror(reflecting: t)
+    for (index,attr) in mirror.children.enumerated() {
+        if let property_name = attr.label as String! {
+                block(index,attr.value)
+        }
+    }
+}
 
+
+public class Tin {
     public class Device {
+        public struct MemoryProperties {
+            public var types:[VkMemoryType]
+            public var heaps:[VkMemoryHeap]
+            public init() {
+                types = [VkMemoryType]()
+                heaps = [VkMemoryHeap]()
+            }
+        }
         public var physicalDevice:VkPhysicalDevice
         public var apiVersion:Int
         public var driverVersion:Int
@@ -33,6 +50,7 @@ public class Tin {
         public var limits:VkPhysicalDeviceLimits
         public var sparseProperties:VkPhysicalDeviceSparseProperties
         public var queuesProperties = [VkQueueFamilyProperties]()
+        public var memoryProperties = MemoryProperties()
         init(device:VkPhysicalDevice, properties p:VkPhysicalDeviceProperties) {
             self.physicalDevice = device
             self.apiVersion = Int(p.apiVersion)
@@ -47,6 +65,59 @@ public class Tin {
             self.deviceName = String(cString:ar)
             self.limits = p.limits
             self.sparseProperties = p.sparseProperties
+            self.enumerateQueues()
+            self.enumerateMemoryProperties()
+        }
+        func enumerateQueues() {
+            var count : UInt32 = 0
+            vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &count, nil)
+            queuesProperties = [VkQueueFamilyProperties] (repeating:VkQueueFamilyProperties(), count:Int(count))
+            vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &count, &queuesProperties)
+            for i in 0..<Int(count) {
+                let fp = queuesProperties[i]
+                var operation = ""
+                if fp.queueFlags & VK_QUEUE_GRAPHICS_BIT.rawValue != 0 {
+                    operation += "graphics "
+                }
+                if fp.queueFlags & VK_QUEUE_COMPUTE_BIT.rawValue != 0 {
+                    operation += "compute "
+                }
+                if fp.queueFlags & VK_QUEUE_TRANSFER_BIT.rawValue != 0 {
+                    operation += "transfer "
+                }
+                if fp.queueFlags & VK_QUEUE_SPARSE_BINDING_BIT.rawValue != 0 {
+                    operation += "sparse "
+                }
+                NSLog("Vulkan: device \(deviceName) queue \(i) \(operation)")
+            }
+        }
+        func enumerateMemoryProperties() {
+            var p = VkPhysicalDeviceMemoryProperties()
+            vkGetPhysicalDeviceMemoryProperties(physicalDevice, &p)
+            iterate(p.memoryTypes) { i,v in
+                if i<p.memoryTypeCount, let mt = v as? VkMemoryType {
+                    memoryProperties.types.append(mt)
+                }
+            }
+            iterate(p.memoryHeaps) { i,v in
+                if i<p.memoryHeapCount, let mh = v as? VkMemoryHeap {
+                    memoryProperties.heaps.append(mh)
+                }
+            }
+        }
+        func memoryTypeIndex(typeBits:UInt32, requirements:VkFlags) -> UInt32? {
+            var tb = typeBits
+            var i = 0
+            for mt in memoryProperties.types {
+                if (tb & 1) == 1 {
+                    if (mt.propertyFlags & requirements) == requirements {
+                        return UInt32(i)
+                    }
+                }
+                tb >>= 1
+                i += 1
+            }
+            return nil;
         }
     }
     class Image {
@@ -78,7 +149,7 @@ public class Tin {
                 return nil
             }
         }
-        public func submit() {
+        public func submit() {  // submit async, for sync version look at vkCreateFence, vkQueueSubmit(,,,fence) 
             vkEndCommandBuffer(cb)
             var submitInfo=VkSubmitInfo()
             submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO
@@ -90,14 +161,14 @@ public class Tin {
             vkQueueWaitIdle(engine.queue)
             vkFreeCommandBuffers(engine.logicalDevice, engine.commandPool, 1, &cb)
         }
-        func setImageLayout(image:VkImage,aspects:VkImageAspectFlags,oldLayout:VkImageLayout,newLayout:VkImageLayout) {
+        func setImageLayout(image:VkImage,aspects:VkImageAspectFlags,oldLayout:VkImageLayout,newLayout:VkImageLayout,srcFlags:VkPipelineStageFlags=VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT.rawValue,dstFlags:VkPipelineStageFlags=VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT.rawValue) {
             var imageBarrier = VkImageMemoryBarrier()
             imageBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
             imageBarrier.pNext = nil
             imageBarrier.oldLayout = oldLayout
             imageBarrier.newLayout = newLayout
             imageBarrier.image = image
-            imageBarrier.subresourceRange.aspectMask = 0
+            imageBarrier.subresourceRange.aspectMask = aspects
             imageBarrier.subresourceRange.baseMipLevel = 0
             imageBarrier.subresourceRange.levelCount = 1
             imageBarrier.subresourceRange.layerCount = 1
@@ -132,8 +203,6 @@ public class Tin {
             default:
                 break
             }
-            let srcFlags:VkPipelineStageFlags  = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT.rawValue
-            let dstFlags:VkPipelineStageFlags  = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT.rawValue
             vkCmdPipelineBarrier(cb, srcFlags, dstFlags, 0, 0, nil, 0, nil, 1, &imageBarrier);
         }
     }
@@ -141,8 +210,226 @@ public class Tin {
         public init() {
         }
     }
+    public class RenderPass {
+        init(to image:Image) {
+
+
+
+            /*
+            var rp_begin = VkRenderPassBeginInfo()
+            rp_begin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO
+            rp_begin.pNext = nil
+            rp_begin.renderPass = info.render_pass;
+            rp_begin.framebuffer = info.framebuffers[info.current_buffer];
+            rp_begin.renderArea.offset.x = 0;
+            rp_begin.renderArea.offset.y = 0;
+            rp_begin.renderArea.extent.width = info.width;
+            rp_begin.renderArea.extent.height = info.height;
+            rp_begin.clearValueCount = 2;
+            rp_begin.pClearValues = clear_values;
+
+            vkCmdBeginRenderPass(info.cmd, &rp_begin, VK_SUBPASS_CONTENTS_INLINE);
+            */
+        }
+        public init(to texture:Texture) {
+            
+        }
+    }
     public class Texture {
-        public init() {
+        let engine:Tin
+        var needStaging = false
+        var image:VkImage?
+        var imageLayout:VkImageLayout = VK_IMAGE_LAYOUT_UNDEFINED
+        var memory:VkDeviceMemory?
+        var view:VkImageView?
+        var sampler:VkSampler? 
+        let width:Int
+        let height:Int
+        public init?(engine:Tin,width:Int,height:Int,pixels:[UInt32]) {
+            self.engine = engine
+            self.width = width
+            self.height = height
+
+            var formatProps = VkFormatProperties()
+            vkGetPhysicalDeviceFormatProperties(engine.device!.physicalDevice, VK_FORMAT_R8G8B8A8_UNORM, &formatProps);
+            needStaging = ((formatProps.linearTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT.rawValue) != VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT.rawValue) ? true : false
+
+            var image_create_info = VkImageCreateInfo()
+            image_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO
+            image_create_info.pNext = nil
+            image_create_info.imageType = VK_IMAGE_TYPE_2D
+            image_create_info.format = VK_FORMAT_R8G8B8A8_UNORM // BGRA ?
+            image_create_info.extent.width = UInt32(width)
+            image_create_info.extent.height = UInt32(height)
+            image_create_info.extent.depth = 1
+            image_create_info.mipLevels = 1
+            image_create_info.arrayLayers = 1
+            image_create_info.samples = VK_SAMPLE_COUNT_1_BIT
+            image_create_info.tiling = VK_IMAGE_TILING_LINEAR
+            image_create_info.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED
+            image_create_info.usage = needStaging ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT.rawValue : VK_IMAGE_USAGE_SAMPLED_BIT.rawValue
+            image_create_info.queueFamilyIndexCount = 0
+            image_create_info.pQueueFamilyIndices = nil
+            image_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE
+            image_create_info.flags = 0
+            var mappableImage:VkImage?
+            var mappableMemory:VkDeviceMemory?
+            if vkCreateImage(engine.logicalDevice, &image_create_info, nil, &mappableImage) != VK_SUCCESS {
+                return nil
+            }
+
+            var memory : VkDeviceMemory?
+            var mem_reqs = VkMemoryRequirements()
+            vkGetImageMemoryRequirements(engine.logicalDevice, image, &mem_reqs)
+            var mem_alloc = VkMemoryAllocateInfo()
+            mem_alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO
+            mem_alloc.pNext = nil
+            mem_alloc.allocationSize = mem_reqs.size
+            mem_alloc.memoryTypeIndex = 0
+            if let i = engine.device?.memoryTypeIndex(typeBits:mem_reqs.memoryTypeBits,requirements: VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT.rawValue | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT.rawValue) {
+                mem_alloc.memoryTypeIndex = i
+            } else {
+                // TODO: release Image
+                return nil
+            }
+            if vkAllocateMemory(engine.logicalDevice, &mem_alloc, nil, &mappableMemory) != VK_SUCCESS {
+                // TODO: release Image
+                return nil
+            }
+            if vkBindImageMemory(engine.logicalDevice, mappableImage, mappableMemory, 0) != VK_SUCCESS {
+                // TODO: release Image & Memory
+                return nil
+            }
+
+            var subres = VkImageSubresource()
+            subres.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT.rawValue
+            subres.mipLevel = 0
+            subres.arrayLayer = 0
+            var layout = VkSubresourceLayout()
+            vkGetImageSubresourceLayout(engine.logicalDevice, mappableImage, &subres, &layout);
+            var data : UnsafeMutableRawPointer?
+            if vkMapMemory(engine.logicalDevice, mappableMemory, 0, mem_reqs.size, 0, UnsafeMutablePointer(&data)) == VK_SUCCESS {
+                memcpy(data!,pixels,4*width*height)
+                vkUnmapMemory(engine.logicalDevice, mappableMemory)
+            }
+
+            if let cb = CommandBuffer(engine:engine) {
+                if !needStaging {
+                    self.image = mappableImage
+                    self.memory = mappableImage
+                    self.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                    cb.setImageLayout(image:self.image!,aspects:VK_IMAGE_ASPECT_COLOR_BIT.rawValue,oldLayout:VK_IMAGE_LAYOUT_PREINITIALIZED,newLayout:self.imageLayout,srcFlags:VK_PIPELINE_STAGE_HOST_BIT.rawValue,dstFlags:VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT.rawValue)
+                } else {
+                    image_create_info.tiling = VK_IMAGE_TILING_OPTIMAL
+                    image_create_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT.rawValue | VK_IMAGE_USAGE_SAMPLED_BIT.rawValue
+                    image_create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
+                    if vkCreateImage(engine.logicalDevice, &image_create_info, nil, &self.image) != VK_SUCCESS {
+                        // TODO: clear...
+                        return nil
+                    }
+                    vkGetImageMemoryRequirements(engine.logicalDevice, self.image, &mem_reqs)
+                    mem_alloc.allocationSize = mem_reqs.size
+                    if let i = engine.device?.memoryTypeIndex(typeBits:mem_reqs.memoryTypeBits,requirements: VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT.rawValue | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT.rawValue) {
+                        mem_alloc.memoryTypeIndex = i
+                    } else {
+                        // TODO: clear...
+                        return nil
+                    }
+                    if vkAllocateMemory(engine.logicalDevice, &mem_alloc, nil, &self.memory) != VK_SUCCESS {
+                        // TODO: clear...
+                        return nil
+                    }
+                    if vkBindImageMemory(engine.logicalDevice, self.image, self.memory, 0) != VK_SUCCESS {
+                        // TODO: clear...
+                        return nil
+                    }
+                    cb.setImageLayout(image:mappableImage!,aspects:VK_IMAGE_ASPECT_COLOR_BIT.rawValue,oldLayout:VK_IMAGE_LAYOUT_PREINITIALIZED,newLayout:VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,srcFlags:VK_PIPELINE_STAGE_HOST_BIT.rawValue,dstFlags:VK_PIPELINE_STAGE_TRANSFER_BIT.rawValue)
+                    cb.setImageLayout(image:self.image!,aspects:VK_IMAGE_ASPECT_COLOR_BIT.rawValue,oldLayout:VK_IMAGE_LAYOUT_UNDEFINED,newLayout:VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,srcFlags:VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT.rawValue,dstFlags:VK_PIPELINE_STAGE_TRANSFER_BIT.rawValue)
+                    var copy_region = VkImageCopy()
+                    copy_region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT.rawValue
+                    copy_region.srcSubresource.mipLevel = 0
+                    copy_region.srcSubresource.baseArrayLayer = 0
+                    copy_region.srcSubresource.layerCount = 1
+                    copy_region.srcOffset.x = 0
+                    copy_region.srcOffset.y = 0
+                    copy_region.srcOffset.z = 0
+                    copy_region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT.rawValue
+                    copy_region.dstSubresource.mipLevel = 0
+                    copy_region.dstSubresource.baseArrayLayer = 0
+                    copy_region.dstSubresource.layerCount = 1
+                    copy_region.dstOffset.x = 0
+                    copy_region.dstOffset.y = 0
+                    copy_region.dstOffset.z = 0
+                    copy_region.extent.width = UInt32(width)
+                    copy_region.extent.height = UInt32(height)
+                    copy_region.extent.depth = 1
+                    vkCmdCopyImage(cb.cb!, mappableImage!, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, self.image!, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy_region)
+                    self.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                    cb.setImageLayout(image:self.image!,aspects:VK_IMAGE_ASPECT_COLOR_BIT.rawValue,oldLayout:VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,newLayout:self.imageLayout,srcFlags:VK_PIPELINE_STAGE_TRANSFER_BIT.rawValue,dstFlags:VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT.rawValue)
+                }
+                cb.submit()
+            }
+            var samplerCreateInfo = VkSamplerCreateInfo()
+            samplerCreateInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO
+            samplerCreateInfo.magFilter = VK_FILTER_LINEAR
+            samplerCreateInfo.minFilter = VK_FILTER_CUBIC_IMG
+            samplerCreateInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR
+            samplerCreateInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE
+            samplerCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE
+            samplerCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE
+            samplerCreateInfo.mipLodBias = 0.0
+            samplerCreateInfo.anisotropyEnable = VkBool32(VK_FALSE)
+            samplerCreateInfo.maxAnisotropy = 1
+            samplerCreateInfo.compareEnable = VkBool32(VK_FALSE)
+            samplerCreateInfo.compareOp = VK_COMPARE_OP_NEVER
+            samplerCreateInfo.minLod = 0.0
+            samplerCreateInfo.maxLod = 0.0
+            samplerCreateInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE
+            if vkCreateSampler(engine.logicalDevice, &samplerCreateInfo, nil, &self.sampler) != VK_SUCCESS {
+                // TODO: clear
+                return nil
+            }
+            var view_info = VkImageViewCreateInfo()
+            view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO
+            view_info.pNext = nil
+            view_info.image = self.image
+            view_info.viewType = VK_IMAGE_VIEW_TYPE_2D
+            view_info.format = VK_FORMAT_R8G8B8A8_UNORM
+            view_info.components.r = VK_COMPONENT_SWIZZLE_R
+            view_info.components.g = VK_COMPONENT_SWIZZLE_G
+            view_info.components.b = VK_COMPONENT_SWIZZLE_B
+            view_info.components.a = VK_COMPONENT_SWIZZLE_A
+            view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT.rawValue
+            view_info.subresourceRange.baseMipLevel = 0
+            view_info.subresourceRange.levelCount = 1
+            view_info.subresourceRange.baseArrayLayer = 0
+            view_info.subresourceRange.layerCount = 1
+            if vkCreateImageView(engine.logicalDevice, &view_info, nil, &self.view) != VK_SUCCESS {
+                // TODO: clear...
+                return nil
+            }
+            if self.needStaging {
+                vkFreeMemory(engine.logicalDevice, mappableMemory, nil)
+                vkDestroyImage(engine.logicalDevice, mappableImage, nil)                
+            }
+        }
+        deinit {
+            if sampler != nil {
+                vkDestroySampler(engine.logicalDevice,sampler,nil)
+                sampler = nil
+            }
+            if view != nil {
+                vkDestroyImageView(engine.logicalDevice,view,nil)
+                view = nil
+            }
+            if image != nil {
+                vkDestroyImage(engine.logicalDevice,image,nil)
+                image = nil
+            }
+            if memory != nil {
+                vkFreeMemory(engine.logicalDevice,memory,nil)
+                memory = nil
+            }
         }
     }
 
@@ -163,7 +450,6 @@ public class Tin {
         self.window = window
         if createInstance(app:window.title) {
             enumerateDevices()
-            enumerateQueues()
             createDevice(0)
             createQueue()
             createCommandPool()
@@ -267,34 +553,6 @@ public class Tin {
             }
         } else {
             NSLog("Vulkan: error \(result), no device")
-        }
-    }
-    func enumerateQueues() {
-        var idev = 0
-        for d in devices {
-            var count : UInt32 = 0
-            vkGetPhysicalDeviceQueueFamilyProperties(d.physicalDevice, &count, nil)
-            var qfp = [VkQueueFamilyProperties] (repeating:VkQueueFamilyProperties(), count:Int(count))
-            vkGetPhysicalDeviceQueueFamilyProperties(d.physicalDevice, &count, &qfp)
-            d.queuesProperties = qfp
-            for i in 0..<Int(count) {
-                let fp = qfp[i]
-                var operation = ""
-                if fp.queueFlags & VK_QUEUE_GRAPHICS_BIT.rawValue != 0 {
-                    operation += "graphics "
-                }
-                if fp.queueFlags & VK_QUEUE_COMPUTE_BIT.rawValue != 0 {
-                    operation += "compute "
-                }
-                if fp.queueFlags & VK_QUEUE_TRANSFER_BIT.rawValue != 0 {
-                    operation += "transfer "
-                }
-                if fp.queueFlags & VK_QUEUE_SPARSE_BINDING_BIT.rawValue != 0 {
-                    operation += "sparse "
-                }
-                NSLog("Vulkan: device \(d.deviceName) queue \(i) \(operation)")
-            }
-            idev += 1
         }
     }
     func createDevice(_ idev:Int) {
