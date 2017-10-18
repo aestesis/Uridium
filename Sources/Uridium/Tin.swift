@@ -263,12 +263,10 @@ public class Tin {
             image_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE
             image_create_info.flags = 0
             var mappableImage:VkImage?
-            var mappableMemory:VkDeviceMemory?
             if vkCreateImage(engine.logicalDevice, &image_create_info, nil, &mappableImage) != VK_SUCCESS {
                 return nil
             }
-
-            var memory : VkDeviceMemory?
+            var mappableMemory:VkDeviceMemory?
             var mem_reqs = VkMemoryRequirements()
             vkGetImageMemoryRequirements(engine.logicalDevice, image, &mem_reqs)
             var mem_alloc = VkMemoryAllocateInfo()
