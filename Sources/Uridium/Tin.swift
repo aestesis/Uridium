@@ -235,7 +235,7 @@ public class Tin {
         var sampler:VkSampler? 
         let width:Int
         let height:Int
-        public init?(engine:Tin,width:Int,height:Int,pixels:[UInt32]) {
+        public init?(engine:Tin,width:Int,height:Int,pixels:[UInt32]? = nil) {
             self.engine = engine
             self.width = width
             self.height = height
@@ -297,10 +297,12 @@ public class Tin {
             subres.arrayLayer = 0
             var layout = VkSubresourceLayout()
             vkGetImageSubresourceLayout(engine.logicalDevice, mappableImage, &subres, &layout);
-            var data : UnsafeMutableRawPointer?
-            if vkMapMemory(engine.logicalDevice, mappableMemory, 0, mem_reqs.size, 0, UnsafeMutablePointer(&data)) == VK_SUCCESS {
-                memcpy(data!,pixels,4*width*height)
-                vkUnmapMemory(engine.logicalDevice, mappableMemory)
+            if let pixels = pixels {
+                var data : UnsafeMutableRawPointer?
+                if vkMapMemory(engine.logicalDevice, mappableMemory, 0, mem_reqs.size, 0, UnsafeMutablePointer(&data)) == VK_SUCCESS {
+                    memcpy(data!,pixels,4*width*height)
+                    vkUnmapMemory(engine.logicalDevice, mappableMemory)
+                }
             }
 
             if let cb = CommandBuffer(engine:engine) {
