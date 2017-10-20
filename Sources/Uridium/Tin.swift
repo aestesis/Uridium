@@ -422,6 +422,171 @@ public class Tin {
             }
         }
     }
+    public class Program {
+        // https://vulkan-tutorial.com/Drawing_a_triangle/Graphics_pipeline_basics/Introduction
+        // https://www.khronos.org/registry/vulkan/specs/1.0/html/vkspec.html#pipelines-graphics
+        public enum VertexFormat {
+            case float
+            case float2
+            case float3
+            case float4
+            var bytes : Int {
+                switch self {
+                    case .float: 
+                    return 4
+                    case .float2: 
+                    return 8
+                    case .float3: 
+                    return 12
+                    case .float4: 
+                    return 16
+                }
+            }
+            var format : VkFormat {
+                switch self {
+                    case .float: 
+                    return VK_FORMAT_R32_SFLOAT
+                    case .float2: 
+                    return VK_FORMAT_R32G32_SFLOAT
+                    case .float3: 
+                    return VK_FORMAT_R32G32B32_SFLOAT
+                    case .float4: 
+                    return VK_FORMAT_R32G32B32A32_SFLOAT
+                }
+            }
+        }
+        let engine:Tin
+        var vertex : VkShaderModule?
+        var fragment : VkShaderModule?
+        var pipeline:VkPipeline?
+        public init(engine:Tin,vertex:String,fragment:String,format:[VertexFormat]) {
+            self.engine = engine
+            self.vertex = createShaderModule(code:vertex)
+            self.fragment = createShaderModule(code:fragment)
+            self.createPipeline(format:format)
+        }
+        func createShaderModule(code:String) -> VkShaderModule? {
+            var createInfo = VkShaderModuleCreateInfo()
+            createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO
+            // TODO:
+            //createInfo.codeSize = code.length
+            //createInfo.pCode = code
+            var shader : VkShaderModule?
+            vkCreateShaderModule(engine.logicalDevice,&createInfo,nil,&shader)
+            return shader
+        }
+        func createPipeline(format:[VertexFormat]) {
+            func fStages() -> [VkPipelineShaderStageCreateInfo] {
+                var infoVertex = VkPipelineShaderStageCreateInfo()
+                infoVertex.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO
+                infoVertex.stage = VK_SHADER_STAGE_VERTEX_BIT
+                infoVertex.pName = UnsafeRawPointer("vertex").assumingMemoryBound(to:Int8.self)
+                infoVertex.module = self.vertex
+                var infoFragment = VkPipelineShaderStageCreateInfo()
+                infoFragment.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO
+                infoFragment.stage = VK_SHADER_STAGE_FRAGMENT_BIT
+                infoFragment.pName = UnsafeRawPointer("fragment").assumingMemoryBound(to:Int8.self)
+                infoFragment.module = self.fragment
+                return [infoVertex,infoFragment]
+            }
+            func fVertexInput(format:[VertexFormat]) -> VkPipelineVertexInputStateCreateInfo {
+                var vertexInputInfo = VkPipelineVertexInputStateCreateInfo()
+                vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO
+                var attributes = [VkVertexInputAttributeDescription]()
+                var size = 0
+                var n = 0
+                for vf in format {
+                    var d = VkVertexInputAttributeDescription()
+                    d.location = UInt32(n)
+                    d.offset = UInt32(size)
+                    attributes.append(d)
+                    n += 1
+                    size += vf.bytes
+                    attributes.append(d)
+                }
+                vertexInputInfo.vertexAttributeDescriptionCount = UInt32(attributes.count)
+                vertexInputInfo.pVertexAttributeDescriptions = UnsafePointer(UnsafeMutablePointer(&attributes))
+                var binding = VkVertexInputBindingDescription()
+                binding.binding = 0
+                binding.stride = UInt32(size)
+                binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX
+                vertexInputInfo.vertexBindingDescriptionCount = 1
+                vertexInputInfo.pVertexBindingDescriptions = UnsafePointer(UnsafeMutablePointer(&binding))
+                return vertexInputInfo
+            }
+            func fAssembly() -> VkPipelineInputAssemblyStateCreateInfo {
+                var assembly = VkPipelineInputAssemblyStateCreateInfo()
+                assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO
+                assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST // VkPrimitiveTopology
+                assembly.primitiveRestartEnable = VkBool32(VK_FALSE) //VkBool32(false)
+                return assembly
+            }
+            func fViewports() -> VkPipelineViewportStateCreateInfo {
+                var vsci = VkPipelineViewportStateCreateInfo()
+                vsci.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO
+                var vps = [VkViewport]()
+                var vp = VkViewport()  
+                vp.x = -1
+                vp.y = 1
+                vp.width = 2
+                vp.height = 2
+                vp.minDepth = 0
+                vp.maxDepth = 1
+                vps.append(vp)
+                vsci.viewportCount = UInt32(vps.count)
+                vsci.pViewports = UnsafePointer(UnsafeMutablePointer(&vps))
+                return vsci
+            }
+            func fRasterization() -> VkPipelineRasterizationStateCreateInfo {
+                var rsci = VkPipelineRasterizationStateCreateInfo()
+                rsci.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO
+                return rsci
+            }
+            func fMultisample() -> VkPipelineMultisampleStateCreateInfo {
+                var msci = VkPipelineMultisampleStateCreateInfo()
+                msci.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO
+                return msci
+            }
+            func fDepthStencil() -> VkPipelineDepthStencilStateCreateInfo {
+                var dsci = VkPipelineDepthStencilStateCreateInfo()
+                dsci.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO
+                return dsci
+            }
+            func fBlend() -> VkPipelineColorBlendStateCreateInfo {
+                var bsci = VkPipelineColorBlendStateCreateInfo()
+                bsci.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO
+                return bsci
+            }
+            func fDynamic() -> VkPipelineDynamicStateCreateInfo {
+                var dsci = VkPipelineDynamicStateCreateInfo()
+                dsci.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO
+                return dsci
+            }
+            var pipelineInfo = VkGraphicsPipelineCreateInfo()
+            pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO            
+            var stages = fStages()
+            pipelineInfo.stageCount = UInt32(stages.count)
+            pipelineInfo.pStages = UnsafePointer(UnsafeMutablePointer(&stages))
+            var vertexInput = fVertexInput(format:format)
+            pipelineInfo.pVertexInputState = UnsafePointer(UnsafeMutablePointer(&vertexInput))
+            var assembly = fAssembly()
+            pipelineInfo.pInputAssemblyState = UnsafePointer(UnsafeMutablePointer(&assembly))
+            var viewports = fViewports()
+            pipelineInfo.pViewportState = UnsafePointer(UnsafeMutablePointer(&viewports))
+            var rasterization = fRasterization()
+            pipelineInfo.pRasterizationState = UnsafePointer(UnsafeMutablePointer(&rasterization))
+            var multisample = fMultisample()
+            pipelineInfo.pMultisampleState = UnsafePointer(UnsafeMutablePointer(&multisample))
+            var depthstencil = fDepthStencil()
+            pipelineInfo.pDepthStencilState = UnsafePointer(UnsafeMutablePointer(&depthstencil))
+            var blend = fBlend()
+            pipelineInfo.pColorBlendState = UnsafePointer(UnsafeMutablePointer(&blend))
+            var dynamic = fDynamic()
+            pipelineInfo.pDynamicState = UnsafePointer(UnsafeMutablePointer(&dynamic))
+            vkCreateGraphicsPipelines(engine.logicalDevice,nil,1, &pipelineInfo,nil,&pipeline)
+        }
+    }
+    
 
     var window:Window
     var instance:VkInstance?=nil
