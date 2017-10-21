@@ -691,8 +691,10 @@ public class Tin {
         var engine:Tin
         var buffer:VkBuffer?
         var memory:VkDeviceMemory?
+        public private(set) var size:Int
         public init?(engine:Tin,size:Int,usage:Usage) {
             self.engine = engine
+            self.size = size
             var ci = VkBufferCreateInfo()
             ci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO
             ci.size = UInt64(size)
