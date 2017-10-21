@@ -110,14 +110,21 @@ public class Tin {
             return nil;
         }
     }
+    class Swapchain {
+        // TODO:
+    }
     class Image {
         var image:VkImage
         var view:VkImageView
         var framebuffer:VkFramebuffer
-        init(image:VkImage,view:VkImageView,framebuffer:VkFramebuffer) {
+        var width:Int 
+        var height:Int
+        init(image:VkImage,view:VkImageView,framebuffer:VkFramebuffer,width:Int,height:Int) {
             self.image = image
             self.view = view
             self.framebuffer = framebuffer
+            self.width = width
+            self.height = height
         }
     }
     public class CommandBuffer {
@@ -196,35 +203,6 @@ public class Tin {
             vkCmdPipelineBarrier(cb, srcFlags, dstFlags, 0, 0, nil, 0, nil, 1, &imageBarrier);
         }
     }
-    public class RenderCommandEncoder {
-        public init() {
-        }
-    }
-    public class RenderPass {
-        init(to image:Image) {
-
-
-
-            /*
-            var rp_begin = VkRenderPassBeginInfo()
-            rp_begin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO
-            rp_begin.pNext = nil
-            rp_begin.renderPass = info.render_pass;
-            rp_begin.framebuffer = info.framebuffers[info.current_buffer];
-            rp_begin.renderArea.offset.x = 0;
-            rp_begin.renderArea.offset.y = 0;
-            rp_begin.renderArea.extent.width = info.width;
-            rp_begin.renderArea.extent.height = info.height;
-            rp_begin.clearValueCount = 2;
-            rp_begin.pClearValues = clear_values;
-
-            vkCmdBeginRenderPass(info.cmd, &rp_begin, VK_SUBPASS_CONTENTS_INLINE);
-            */
-        }
-        public init(to texture:Texture) {
-            
-        }
-    }
     public class Texture {
         let engine:Tin
         var needStaging = false
@@ -248,7 +226,7 @@ public class Tin {
             image_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO
             image_create_info.pNext = nil
             image_create_info.imageType = VK_IMAGE_TYPE_2D
-            image_create_info.format = VK_FORMAT_R8G8B8A8_UNORM // BGRA ?
+            image_create_info.format = VK_FORMAT_B8G8R8A8_UNORM 
             image_create_info.extent.width = UInt32(width)
             image_create_info.extent.height = UInt32(height)
             image_create_info.extent.depth = 1
@@ -422,7 +400,69 @@ public class Tin {
             }
         }
     }
-    public class Program {
+    public class RenderCommandEncoder {
+        public init() {
+        }
+    }
+    public class RenderPass {
+        let engine:Tin
+        var renderPass:VkRenderPass?
+        var cb:CommandBuffer?
+        init?(engine:Tin, to image:Image) {
+            self.engine = engine
+            var colorAttachment = VkAttachmentDescription()
+            colorAttachment.format = VK_FORMAT_B8G8R8A8_UNORM
+            colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT
+            colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE
+            colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE
+            colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE
+            colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE
+            colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
+            colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+            var colorAttachmentRef = VkAttachmentReference()
+            colorAttachmentRef.attachment = 0;
+            colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+            var subpass = VkSubpassDescription()
+            subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS
+            subpass.colorAttachmentCount = 1
+            subpass.pColorAttachments = UnsafePointer(UnsafeMutablePointer(&colorAttachmentRef))
+            var renderPassInfo = VkRenderPassCreateInfo()
+            renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO
+            renderPassInfo.attachmentCount = 1;
+            renderPassInfo.pAttachments = UnsafePointer(UnsafeMutablePointer(&colorAttachment))
+            renderPassInfo.subpassCount = 1
+            renderPassInfo.pSubpasses = UnsafePointer(UnsafeMutablePointer(&subpass))
+            if vkCreateRenderPass(engine.logicalDevice, &renderPassInfo, nil, &renderPass) != VK_SUCCESS {
+                return nil
+            }
+            begin(width:image.width,height:image.height,framebuffer:image.framebuffer)
+        }
+        public init(engine:Tin, to texture:Texture) {
+            self.engine = engine
+        }
+        func begin(width:Int,height:Int,framebuffer:VkFramebuffer) {
+            cb = CommandBuffer(engine:engine)
+            var rp_begin = VkRenderPassBeginInfo()
+            rp_begin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO
+            rp_begin.pNext = nil
+            rp_begin.renderPass = renderPass
+            rp_begin.framebuffer = framebuffer
+            rp_begin.renderArea.offset.x = 0
+            rp_begin.renderArea.offset.y = 0
+            rp_begin.renderArea.extent.width = UInt32(width)
+            rp_begin.renderArea.extent.height = UInt32(height)
+            var clear = [VkClearValue](repeating:VkClearValue(), count:2)
+            clear[0].color.uint32.0 = 0
+            clear[0].color.uint32.1 = 0
+            clear[0].color.uint32.2 = 0
+            clear[0].color.uint32.3 = 0
+            clear[1].depthStencil.depth = 1.0
+            rp_begin.clearValueCount = UInt32(clear.count)
+            rp_begin.pClearValues = UnsafePointer(UnsafeMutablePointer(&clear))
+            vkCmdBeginRenderPass(cb!.cb, &rp_begin, VK_SUBPASS_CONTENTS_INLINE);
+        }
+    }
+    public class Pipeline {
         // https://vulkan-tutorial.com/Drawing_a_triangle/Graphics_pipeline_basics/Introduction
         // https://www.khronos.org/registry/vulkan/specs/1.0/html/vkspec.html#pipelines-graphics
         public enum VertexFormat {
@@ -518,7 +558,7 @@ public class Tin {
                 var assembly = VkPipelineInputAssemblyStateCreateInfo()
                 assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO
                 assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST // VkPrimitiveTopology
-                assembly.primitiveRestartEnable = VkBool32(VK_FALSE) //VkBool32(false)
+                assembly.primitiveRestartEnable = VkBool32(VK_FALSE)
                 return assembly
             }
             func fViewports() -> VkPipelineViewportStateCreateInfo {
@@ -540,26 +580,71 @@ public class Tin {
             func fRasterization() -> VkPipelineRasterizationStateCreateInfo {
                 var rsci = VkPipelineRasterizationStateCreateInfo()
                 rsci.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO
+                rsci.depthClampEnable = VkBool32(VK_TRUE)
+                rsci.rasterizerDiscardEnable = VkBool32(VK_TRUE)
+                rsci.polygonMode = VK_POLYGON_MODE_FILL         // VkPolygonMode
+                rsci.cullMode = VK_CULL_MODE_BACK_BIT.rawValue  // VkCullModeFlagBits
+                rsci.frontFace = VK_FRONT_FACE_CLOCKWISE        // VkFrontFace
+                rsci.depthBiasEnable = VkBool32(VK_FALSE)
+                rsci.lineWidth = 0  // ???
                 return rsci
             }
             func fMultisample() -> VkPipelineMultisampleStateCreateInfo {
+                // https://www.khronos.org/registry/vulkan/specs/1.0/html/vkspec.html#primsrast-sampleshading
                 var msci = VkPipelineMultisampleStateCreateInfo()
                 msci.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO
+                msci.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT   // VkSampleCountFlagBits
+                msci.sampleShadingEnable = VkBool32(VK_FALSE)
+                msci.minSampleShading = 1
+                msci.pSampleMask = nil
+                msci.alphaToCoverageEnable = VkBool32(VK_FALSE)
+                msci.alphaToOneEnable = VkBool32(VK_FALSE)
                 return msci
             }
             func fDepthStencil() -> VkPipelineDepthStencilStateCreateInfo {
                 var dsci = VkPipelineDepthStencilStateCreateInfo()
                 dsci.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO
+                dsci.depthTestEnable = VkBool32(VK_FALSE)   // TODO: enable depth test
+                dsci.depthWriteEnable = VkBool32(VK_FALSE)
+                dsci.depthCompareOp = VK_COMPARE_OP_LESS
+                dsci.depthBoundsTestEnable = VkBool32(VK_FALSE)
+                dsci.stencilTestEnable = VkBool32(VK_FALSE)
+                // dsci.front =
+                // dsci.back =
+                dsci.minDepthBounds = 0
+                dsci.maxDepthBounds = 1
                 return dsci
             }
             func fBlend() -> VkPipelineColorBlendStateCreateInfo {
+                // https://www.khronos.org/registry/vulkan/specs/1.0/man/html/VkPipelineColorBlendStateCreateInfo.html
                 var bsci = VkPipelineColorBlendStateCreateInfo()
                 bsci.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO
+                bsci.logicOpEnable = VkBool32(VK_FALSE)
+                bsci.logicOp = VK_LOGIC_OP_SET                  // VkLogicOp, special blend (or,and,xor..)
+                bsci.attachmentCount = 1
+                var att = VkPipelineColorBlendAttachmentState()
+                att.blendEnable = VkBool32(VK_FALSE)            // TODO: ennable blend
+                att.srcColorBlendFactor = VK_BLEND_FACTOR_ONE   // VkBlendFactor
+                att.dstColorBlendFactor = VK_BLEND_FACTOR_ONE
+                att.colorBlendOp = VK_BLEND_OP_ADD
+                att.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE
+                att.dstAlphaBlendFactor  = VK_BLEND_FACTOR_ONE
+                att.alphaBlendOp = VK_BLEND_OP_MAX
+                att.colorWriteMask = VK_COLOR_COMPONENT_R_BIT.rawValue | VK_COLOR_COMPONENT_G_BIT.rawValue | VK_COLOR_COMPONENT_B_BIT.rawValue | VK_COLOR_COMPONENT_A_BIT.rawValue
+                bsci.pAttachments = UnsafePointer(UnsafeMutablePointer(&att))
+                bsci.blendConstants.0 = 1.0 // R
+                bsci.blendConstants.1 = 1.0 // G
+                bsci.blendConstants.2 = 1.0 // B
+                bsci.blendConstants.3 = 1.0 // A
                 return bsci
             }
             func fDynamic() -> VkPipelineDynamicStateCreateInfo {
                 var dsci = VkPipelineDynamicStateCreateInfo()
                 dsci.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO
+                var dyn = [VkDynamicState]()
+                // dyn.append(VK_DYNAMIC_STATE_SCISSOR)
+                dsci.dynamicStateCount = UInt32(dyn.count)
+                dsci.pDynamicStates = UnsafePointer(UnsafeMutablePointer(&dyn))
                 return dsci
             }
             var pipelineInfo = VkGraphicsPipelineCreateInfo()
@@ -586,7 +671,64 @@ public class Tin {
             vkCreateGraphicsPipelines(engine.logicalDevice,nil,1, &pipelineInfo,nil,&pipeline)
         }
     }
-    
+    public class Buffer {
+        // https://vulkan-tutorial.com/Vertex_buffers/Vertex_buffer_creation
+        public struct Usage : OptionSet {
+            public let rawValue:Int
+            public static let transferSrc = Usage(rawValue: Int(VK_BUFFER_USAGE_TRANSFER_SRC_BIT.rawValue))
+            public static let transferDst = Usage(rawValue: Int(VK_BUFFER_USAGE_TRANSFER_DST_BIT.rawValue))
+            public static let uniformTexel = Usage(rawValue: Int(VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT.rawValue))
+            public static let storageTexel = Usage(rawValue: Int(VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT.rawValue))
+            public static let UniformBuffer = Usage(rawValue: Int(VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT.rawValue))
+            public static let stotageBuffer = Usage(rawValue: Int(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT.rawValue))
+            public static let indexBuffer = Usage(rawValue: Int(VK_BUFFER_USAGE_INDEX_BUFFER_BIT.rawValue))
+            public static let vertexBuffer = Usage(rawValue: Int(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT.rawValue))
+            public static let indirectBuffer = Usage(rawValue: Int(VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT.rawValue))
+            public init(rawValue:Int) {
+                self.rawValue = rawValue
+            }
+        }
+        var engine:Tin
+        var buffer:VkBuffer?
+        var memory:VkDeviceMemory?
+        public init?(engine:Tin,size:Int,usage:Usage) {
+            self.engine = engine
+            var ci = VkBufferCreateInfo()
+            ci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO
+            ci.size = UInt64(size)
+            ci.usage = UInt32(usage.rawValue)
+            ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE
+            if vkCreateBuffer(engine.logicalDevice, &ci, nil, &buffer) != VK_SUCCESS {
+                return nil
+            }
+            var memRequirements = VkMemoryRequirements()
+            vkGetBufferMemoryRequirements(engine.logicalDevice, buffer, &memRequirements)
+            var allocInfo = VkMemoryAllocateInfo()
+            allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO
+            allocInfo.allocationSize = memRequirements.size
+            allocInfo.memoryTypeIndex = 0
+            if vkAllocateMemory(engine.logicalDevice, &allocInfo, nil, &memory) != VK_SUCCESS {
+                return nil
+            }
+            vkBindBufferMemory(engine.logicalDevice, buffer, memory, 0);            
+        }
+        deinit {
+            if memory != nil {
+                vkFreeMemory(engine.logicalDevice,memory,nil)
+                memory = nil
+            }
+            if buffer != nil {
+                vkDestroyBuffer(engine.logicalDevice, buffer, nil)
+                buffer = nil
+            }
+        }
+    }
+    public struct Color {
+        var r:UInt32
+        var g:UInt32
+        var b:UInt32
+        var a:UInt32
+    }
 
     var window:Window
     var instance:VkInstance?=nil
@@ -838,7 +980,7 @@ public class Tin {
                                 fbCreateInfo.layers = 1
                                 var framebuffer : VkFramebuffer?
                                 if vkCreateFramebuffer(logicalDevice, &fbCreateInfo, nil, &framebuffer) == VK_SUCCESS {
-                                    self.images.append(Image(image:image!,view:view!,framebuffer:framebuffer!))
+                                    self.images.append(Image(image:image!,view:view!,framebuffer:framebuffer!,width:Int(size.width),height:Int(size.height)))
                                 }
                             }
                         }
@@ -865,6 +1007,7 @@ public class Tin {
         createSwapchain()
     }
     func aquire() -> Bool {
+        vkQueueWaitIdle(queue)
         imageIndex = (imageIndex + 1) & 1
         if vkAcquireNextImageKHR(logicalDevice,swapchain,100000000,nil,nil,&imageIndex) == VK_SUCCESS {
             return true
