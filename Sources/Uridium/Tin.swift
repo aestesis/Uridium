@@ -692,7 +692,7 @@ public class Tin {
         var buffer:VkBuffer?
         var memory:VkDeviceMemory?
         public private(set) var size:Int
-        public init?(engine:Tin,size:Int,usage:Usage) {
+        public init?(engine:Tin,size:Int,usage:Usage=[.UniformBuffer,.indexBuffer,.vertexBuffer]) {
             self.engine = engine
             self.size = size
             var ci = VkBufferCreateInfo()
@@ -722,6 +722,13 @@ public class Tin {
             if buffer != nil {
                 vkDestroyBuffer(engine.logicalDevice, buffer, nil)
                 buffer = nil
+            }
+        }
+        public func withMemoryMap(fn:(UnsafeMutableRawPointer)->()) {
+            var data : UnsafeMutableRawPointer?
+            if vkMapMemory(engine.logicalDevice, memory, 0, UInt64(size), 0, UnsafeMutablePointer(&data)) == VK_SUCCESS {
+                fn(data!)
+                vkUnmapMemory(engine.logicalDevice, memory)
             }
         }
     }
