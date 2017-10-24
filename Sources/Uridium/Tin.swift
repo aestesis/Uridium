@@ -499,18 +499,20 @@ public class Tin {
         var vertex : VkShaderModule?
         var fragment : VkShaderModule?
         var pipeline:VkPipeline?
-        public init(engine:Tin,vertex:String,fragment:String,format:[VertexFormat]) {
+        public init(engine:Tin,vertex:[UInt8],fragment:[UInt8],format:[VertexFormat]) {
             self.engine = engine
             self.vertex = createShaderModule(code:vertex)
             self.fragment = createShaderModule(code:fragment)
             self.createPipeline(format:format)
         }
-        func createShaderModule(code:String) -> VkShaderModule? {
+        func createShaderModule(code:[UInt8]) -> VkShaderModule? {
             var createInfo = VkShaderModuleCreateInfo()
             createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO
-            // TODO:
-            //createInfo.codeSize = code.length
-            //createInfo.pCode = code
+            createInfo.codeSize = code.count
+            if (code.count & 3) != 0 || code.count == 0 {
+                NSLog("vulkan: error spir-v code invalid")
+            }
+            createInfo.pCode = UnsafeRawPointer(code).assumingMemoryBound(to:UInt32.self)
             var shader : VkShaderModule?
             vkCreateShaderModule(engine.logicalDevice,&createInfo,nil,&shader)
             return shader
