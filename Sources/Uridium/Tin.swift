@@ -30,6 +30,7 @@ public class Tin {
                 heaps = [VkMemoryHeap]()
             }
         }
+        var ll : LunarLayer
         public var physicalDevice:VkPhysicalDevice
         public var apiVersion:Int
         public var driverVersion:Int
@@ -41,7 +42,8 @@ public class Tin {
         public var sparseProperties:VkPhysicalDeviceSparseProperties
         public var queuesProperties = [VkQueueFamilyProperties]()
         public var memoryProperties = MemoryProperties()
-        init(device:VkPhysicalDevice, properties p:VkPhysicalDeviceProperties) {
+        init(ll:LunarLayer,device:VkPhysicalDevice, properties p:VkPhysicalDeviceProperties) {
+            self.ll = ll
             self.physicalDevice = device
             self.apiVersion = Int(p.apiVersion)
             self.driverVersion = Int(p.driverVersion)
@@ -60,9 +62,9 @@ public class Tin {
         }
         func enumerateQueues() {
             var count : UInt32 = 0
-            vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &count, nil)
+            ll.vkGetPhysicalDeviceQueueFamilyProperties!(physicalDevice, &count, nil)
             queuesProperties = [VkQueueFamilyProperties] (repeating:VkQueueFamilyProperties(), count:Int(count))
-            vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &count, &queuesProperties)
+            ll.vkGetPhysicalDeviceQueueFamilyProperties!(physicalDevice, &count, &queuesProperties)
             for i in 0..<Int(count) {
                 let fp = queuesProperties[i]
                 var operation = ""
@@ -78,12 +80,12 @@ public class Tin {
                 if fp.queueFlags & VK_QUEUE_SPARSE_BINDING_BIT.rawValue != 0 {
                     operation += "sparse "
                 }
-                NSLog("Vulkan: device \(deviceName) queue \(i) \(operation)")
+                NSLog("vulkan: device \(deviceName) queue \(i) \(operation)")
             }
         }
         func enumerateMemoryProperties() {
             var p = VkPhysicalDeviceMemoryProperties()
-            vkGetPhysicalDeviceMemoryProperties(physicalDevice, &p)
+            ll.vkGetPhysicalDeviceMemoryProperties!(physicalDevice, &p)
             iterate(p.memoryTypes) { i,v in
                 if i<p.memoryTypeCount, let mt = v as? VkMemoryType {
                     memoryProperties.types.append(mt)
@@ -128,35 +130,37 @@ public class Tin {
         }
     }
     public class CommandBuffer {
+        let ll:LunarLayer
         let engine:Tin
         var cb:VkCommandBuffer?
         public init?(engine:Tin) {
+            self.ll = engine.ll
             self.engine = engine
             var setupBufferInfo = VkCommandBufferAllocateInfo()
             setupBufferInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO
             setupBufferInfo.commandPool = engine.commandPool
             setupBufferInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY
             setupBufferInfo.commandBufferCount = 1
-            if vkAllocateCommandBuffers(engine.logicalDevice, &setupBufferInfo, &cb) != VK_SUCCESS {
+            if ll.vkAllocateCommandBuffers!(engine.logicalDevice, &setupBufferInfo, &cb) != VK_SUCCESS {
                 return nil
             }
             var commandBufferBeginInfo = VkCommandBufferBeginInfo()
             commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-            if vkBeginCommandBuffer(cb,&commandBufferBeginInfo) != VK_SUCCESS {
+            if ll.vkBeginCommandBuffer!(cb,&commandBufferBeginInfo) != VK_SUCCESS {
                 return nil
             }
         }
         public func submit() {  // submit async, for sync version look at vkCreateFence, vkQueueSubmit(,,,fence) 
-            vkEndCommandBuffer(cb)
+            ll.vkEndCommandBuffer!(cb)
             var submitInfo=VkSubmitInfo()
             submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO
             submitInfo.commandBufferCount = 1
             submitInfo.pCommandBuffers = UnsafePointer(UnsafeMutablePointer(&cb))
-            vkQueueSubmit(engine.queue, 1, &submitInfo, nil)
+            ll.vkQueueSubmit!(engine.queue, 1, &submitInfo, nil)
         }
         deinit {
-            vkQueueWaitIdle(engine.queue)
-            vkFreeCommandBuffers(engine.logicalDevice, engine.commandPool, 1, &cb)
+            ll.vkQueueWaitIdle!(engine.queue)
+            ll.vkFreeCommandBuffers!(engine.logicalDevice, engine.commandPool, 1, &cb)
         }
         func setImageLayout(image:VkImage,aspects:VkImageAspectFlags,oldLayout:VkImageLayout,newLayout:VkImageLayout,srcFlags:VkPipelineStageFlags=VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT.rawValue,dstFlags:VkPipelineStageFlags=VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT.rawValue) {
             var imageBarrier = VkImageMemoryBarrier()
@@ -200,10 +204,11 @@ public class Tin {
             default:
                 break
             }
-            vkCmdPipelineBarrier(cb, srcFlags, dstFlags, 0, 0, nil, 0, nil, 1, &imageBarrier);
+            ll.vkCmdPipelineBarrier!(cb, srcFlags, dstFlags, 0, 0, nil, 0, nil, 1, &imageBarrier);
         }
     }
     public class Texture {
+        let ll:LunarLayer
         let engine:Tin
         var needStaging = false
         var image:VkImage?
@@ -214,12 +219,13 @@ public class Tin {
         let width:Int
         let height:Int
         public init?(engine:Tin,width:Int,height:Int,pixels:[UInt32]? = nil) {
+            self.ll = engine.ll
             self.engine = engine
             self.width = width
             self.height = height
 
             var formatProps = VkFormatProperties()
-            vkGetPhysicalDeviceFormatProperties(engine.device!.physicalDevice, VK_FORMAT_R8G8B8A8_UNORM, &formatProps);
+            ll.vkGetPhysicalDeviceFormatProperties!(engine.device!.physicalDevice, VK_FORMAT_R8G8B8A8_UNORM, &formatProps);
             needStaging = ((formatProps.linearTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT.rawValue) != VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT.rawValue) ? true : false
 
             var image_create_info = VkImageCreateInfo()
@@ -241,7 +247,7 @@ public class Tin {
             image_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE
             image_create_info.flags = 0
             var mappableImage:VkImage?
-            if vkCreateImage(engine.logicalDevice, &image_create_info, nil, &mappableImage) != VK_SUCCESS {
+            if ll.vkCreateImage!(engine.logicalDevice, &image_create_info, nil, &mappableImage) != VK_SUCCESS {
                 return nil
             }
             var mappableMemory:VkDeviceMemory?
@@ -258,11 +264,11 @@ public class Tin {
                 // TODO: release Image
                 return nil
             }
-            if vkAllocateMemory(engine.logicalDevice, &mem_alloc, nil, &mappableMemory) != VK_SUCCESS {
+            if ll.vkAllocateMemory!(engine.logicalDevice, &mem_alloc, nil, &mappableMemory) != VK_SUCCESS {
                 // TODO: release Image
                 return nil
             }
-            if vkBindImageMemory(engine.logicalDevice, mappableImage, mappableMemory, 0) != VK_SUCCESS {
+            if ll.vkBindImageMemory!(engine.logicalDevice, mappableImage, mappableMemory, 0) != VK_SUCCESS {
                 // TODO: release Image & Memory
                 return nil
             }
@@ -272,12 +278,12 @@ public class Tin {
             subres.mipLevel = 0
             subres.arrayLayer = 0
             var layout = VkSubresourceLayout()
-            vkGetImageSubresourceLayout(engine.logicalDevice, mappableImage, &subres, &layout);
+            ll.vkGetImageSubresourceLayout!(engine.logicalDevice, mappableImage, &subres, &layout);
             if let pixels = pixels {
                 var data : UnsafeMutableRawPointer?
-                if vkMapMemory(engine.logicalDevice, mappableMemory, 0, mem_reqs.size, 0, UnsafeMutablePointer(&data)) == VK_SUCCESS {
+                if ll.vkMapMemory!(engine.logicalDevice, mappableMemory, 0, mem_reqs.size, 0, UnsafeMutablePointer(&data)) == VK_SUCCESS {
                     memcpy(data!,pixels,4*width*height)
-                    vkUnmapMemory(engine.logicalDevice, mappableMemory)
+                    ll.vkUnmapMemory!(engine.logicalDevice, mappableMemory)
                 }
             }
 
@@ -291,11 +297,11 @@ public class Tin {
                     image_create_info.tiling = VK_IMAGE_TILING_OPTIMAL
                     image_create_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT.rawValue | VK_IMAGE_USAGE_SAMPLED_BIT.rawValue
                     image_create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
-                    if vkCreateImage(engine.logicalDevice, &image_create_info, nil, &self.image) != VK_SUCCESS {
+                    if ll.vkCreateImage!(engine.logicalDevice, &image_create_info, nil, &self.image) != VK_SUCCESS {
                         // TODO: clear...
                         return nil
                     }
-                    vkGetImageMemoryRequirements(engine.logicalDevice, self.image, &mem_reqs)
+                    ll.vkGetImageMemoryRequirements!(engine.logicalDevice, self.image, &mem_reqs)
                     mem_alloc.allocationSize = mem_reqs.size
                     if let i = engine.device?.memoryTypeIndex(typeBits:mem_reqs.memoryTypeBits,requirements: VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT.rawValue | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT.rawValue) {
                         mem_alloc.memoryTypeIndex = i
@@ -303,11 +309,11 @@ public class Tin {
                         // TODO: clear...
                         return nil
                     }
-                    if vkAllocateMemory(engine.logicalDevice, &mem_alloc, nil, &self.memory) != VK_SUCCESS {
+                    if ll.vkAllocateMemory!(engine.logicalDevice, &mem_alloc, nil, &self.memory) != VK_SUCCESS {
                         // TODO: clear...
                         return nil
                     }
-                    if vkBindImageMemory(engine.logicalDevice, self.image, self.memory, 0) != VK_SUCCESS {
+                    if ll.vkBindImageMemory!(engine.logicalDevice, self.image, self.memory, 0) != VK_SUCCESS {
                         // TODO: clear...
                         return nil
                     }
@@ -331,7 +337,7 @@ public class Tin {
                     copy_region.extent.width = UInt32(width)
                     copy_region.extent.height = UInt32(height)
                     copy_region.extent.depth = 1
-                    vkCmdCopyImage(cb.cb!, mappableImage!, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, self.image!, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy_region)
+                    ll.vkCmdCopyImage!(cb.cb!, mappableImage!, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, self.image!, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy_region)
                     self.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
                     cb.setImageLayout(image:self.image!,aspects:VK_IMAGE_ASPECT_COLOR_BIT.rawValue,oldLayout:VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,newLayout:self.imageLayout,srcFlags:VK_PIPELINE_STAGE_TRANSFER_BIT.rawValue,dstFlags:VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT.rawValue)
                 }
@@ -353,7 +359,7 @@ public class Tin {
             samplerCreateInfo.minLod = 0.0
             samplerCreateInfo.maxLod = 0.0
             samplerCreateInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE
-            if vkCreateSampler(engine.logicalDevice, &samplerCreateInfo, nil, &self.sampler) != VK_SUCCESS {
+            if ll.vkCreateSampler!(engine.logicalDevice, &samplerCreateInfo, nil, &self.sampler) != VK_SUCCESS {
                 // TODO: clear
                 return nil
             }
@@ -372,30 +378,30 @@ public class Tin {
             view_info.subresourceRange.levelCount = 1
             view_info.subresourceRange.baseArrayLayer = 0
             view_info.subresourceRange.layerCount = 1
-            if vkCreateImageView(engine.logicalDevice, &view_info, nil, &self.view) != VK_SUCCESS {
+            if ll.vkCreateImageView!(engine.logicalDevice, &view_info, nil, &self.view) != VK_SUCCESS {
                 // TODO: clear...
                 return nil
             }
             if self.needStaging {
-                vkFreeMemory(engine.logicalDevice, mappableMemory, nil)
-                vkDestroyImage(engine.logicalDevice, mappableImage, nil)                
+                ll.vkFreeMemory!(engine.logicalDevice, mappableMemory, nil)
+                ll.vkDestroyImage!(engine.logicalDevice, mappableImage, nil)                
             }
         }
         deinit {
             if sampler != nil {
-                vkDestroySampler(engine.logicalDevice,sampler,nil)
+                ll.vkDestroySampler!(engine.logicalDevice,sampler,nil)
                 sampler = nil
             }
             if view != nil {
-                vkDestroyImageView(engine.logicalDevice,view,nil)
+                ll.vkDestroyImageView!(engine.logicalDevice,view,nil)
                 view = nil
             }
             if image != nil {
-                vkDestroyImage(engine.logicalDevice,image,nil)
+                ll.vkDestroyImage!(engine.logicalDevice,image,nil)
                 image = nil
             }
             if memory != nil {
-                vkFreeMemory(engine.logicalDevice,memory,nil)
+                ll.vkFreeMemory!(engine.logicalDevice,memory,nil)
                 memory = nil
             }
         }
@@ -405,10 +411,12 @@ public class Tin {
         }
     }
     public class RenderPass {
+        let ll:LunarLayer
         let engine:Tin
         var renderPass:VkRenderPass?
         var cb:CommandBuffer?
         init?(engine:Tin, to image:Image) {
+            self.ll = engine.ll
             self.engine = engine
             var colorAttachment = VkAttachmentDescription()
             colorAttachment.format = VK_FORMAT_B8G8R8A8_UNORM
@@ -432,13 +440,16 @@ public class Tin {
             renderPassInfo.pAttachments = UnsafePointer(UnsafeMutablePointer(&colorAttachment))
             renderPassInfo.subpassCount = 1
             renderPassInfo.pSubpasses = UnsafePointer(UnsafeMutablePointer(&subpass))
-            if vkCreateRenderPass(engine.logicalDevice, &renderPassInfo, nil, &renderPass) != VK_SUCCESS {
+            if ll.vkCreateRenderPass!(engine.logicalDevice, &renderPassInfo, nil, &renderPass) != VK_SUCCESS {
                 return nil
             }
             begin(width:image.width,height:image.height,framebuffer:image.framebuffer)
         }
         public init(engine:Tin, to texture:Texture) {
+            self.ll = engine.ll
             self.engine = engine
+            // TODO:
+            NSLog("Not Implemented")
         }
         func begin(width:Int,height:Int,framebuffer:VkFramebuffer) {
             cb = CommandBuffer(engine:engine)
@@ -459,7 +470,7 @@ public class Tin {
             clear[1].depthStencil.depth = 1.0
             rp_begin.clearValueCount = UInt32(clear.count)
             rp_begin.pClearValues = UnsafePointer(UnsafeMutablePointer(&clear))
-            vkCmdBeginRenderPass(cb!.cb, &rp_begin, VK_SUBPASS_CONTENTS_INLINE);
+            ll.vkCmdBeginRenderPass!(cb!.cb, &rp_begin, VK_SUBPASS_CONTENTS_INLINE);
         }
     }
     public class Pipeline {
@@ -495,11 +506,13 @@ public class Tin {
                 }
             }
         }
+        let ll:LunarLayer
         let engine:Tin
         var vertex : VkShaderModule?
         var fragment : VkShaderModule?
         var pipeline:VkPipeline?
         public init(engine:Tin,vertex:[UInt8],fragment:[UInt8],format:[VertexFormat]) {
+            self.ll = engine.ll
             self.engine = engine
             self.vertex = createShaderModule(code:vertex)
             self.fragment = createShaderModule(code:fragment)
@@ -514,163 +527,140 @@ public class Tin {
             }
             createInfo.pCode = UnsafeRawPointer(code).assumingMemoryBound(to:UInt32.self)
             var shader : VkShaderModule?
-            vkCreateShaderModule(engine.logicalDevice,&createInfo,nil,&shader)
+            ll.vkCreateShaderModule!(engine.logicalDevice,&createInfo,nil,&shader)
             return shader
         }
         func createPipeline(format:[VertexFormat]) {
-            func fStages() -> [VkPipelineShaderStageCreateInfo] {
-                var infoVertex = VkPipelineShaderStageCreateInfo()
-                infoVertex.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO
-                infoVertex.stage = VK_SHADER_STAGE_VERTEX_BIT
-                infoVertex.pName = UnsafeRawPointer("vertex").assumingMemoryBound(to:Int8.self)
-                infoVertex.module = self.vertex
-                var infoFragment = VkPipelineShaderStageCreateInfo()
-                infoFragment.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO
-                infoFragment.stage = VK_SHADER_STAGE_FRAGMENT_BIT
-                infoFragment.pName = UnsafeRawPointer("fragment").assumingMemoryBound(to:Int8.self)
-                infoFragment.module = self.fragment
-                return [infoVertex,infoFragment]
-            }
-            func fVertexInput(format:[VertexFormat]) -> VkPipelineVertexInputStateCreateInfo {
-                var vertexInputInfo = VkPipelineVertexInputStateCreateInfo()
-                vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO
-                var attributes = [VkVertexInputAttributeDescription]()
-                var size = 0
-                var n = 0
-                for vf in format {
-                    var d = VkVertexInputAttributeDescription()
-                    d.location = UInt32(n)
-                    d.offset = UInt32(size)
-                    attributes.append(d)
-                    n += 1
-                    size += vf.bytes
-                    attributes.append(d)
-                }
-                vertexInputInfo.vertexAttributeDescriptionCount = UInt32(attributes.count)
-                vertexInputInfo.pVertexAttributeDescriptions = UnsafePointer(UnsafeMutablePointer(&attributes))
-                var binding = VkVertexInputBindingDescription()
-                binding.binding = 0
-                binding.stride = UInt32(size)
-                binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX
-                vertexInputInfo.vertexBindingDescriptionCount = 1
-                vertexInputInfo.pVertexBindingDescriptions = UnsafePointer(UnsafeMutablePointer(&binding))
-                return vertexInputInfo
-            }
-            func fAssembly() -> VkPipelineInputAssemblyStateCreateInfo {
-                var assembly = VkPipelineInputAssemblyStateCreateInfo()
-                assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO
-                assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST // VkPrimitiveTopology
-                assembly.primitiveRestartEnable = VkBool32(VK_FALSE)
-                return assembly
-            }
-            func fViewports() -> VkPipelineViewportStateCreateInfo {
-                var vsci = VkPipelineViewportStateCreateInfo()
-                vsci.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO
-                var vps = [VkViewport]()
-                var vp = VkViewport()  
-                vp.x = -1
-                vp.y = 1
-                vp.width = 2
-                vp.height = 2
-                vp.minDepth = 0
-                vp.maxDepth = 1
-                vps.append(vp)
-                vsci.viewportCount = UInt32(vps.count)
-                vsci.pViewports = UnsafePointer(UnsafeMutablePointer(&vps))
-                return vsci
-            }
-            func fRasterization() -> VkPipelineRasterizationStateCreateInfo {
-                var rsci = VkPipelineRasterizationStateCreateInfo()
-                rsci.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO
-                rsci.depthClampEnable = VkBool32(VK_TRUE)
-                rsci.rasterizerDiscardEnable = VkBool32(VK_TRUE)
-                rsci.polygonMode = VK_POLYGON_MODE_FILL         // VkPolygonMode
-                rsci.cullMode = VK_CULL_MODE_BACK_BIT.rawValue  // VkCullModeFlagBits
-                rsci.frontFace = VK_FRONT_FACE_CLOCKWISE        // VkFrontFace
-                rsci.depthBiasEnable = VkBool32(VK_FALSE)
-                rsci.lineWidth = 0  // ???
-                return rsci
-            }
-            func fMultisample() -> VkPipelineMultisampleStateCreateInfo {
-                // https://www.khronos.org/registry/vulkan/specs/1.0/html/vkspec.html#primsrast-sampleshading
-                var msci = VkPipelineMultisampleStateCreateInfo()
-                msci.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO
-                msci.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT   // VkSampleCountFlagBits
-                msci.sampleShadingEnable = VkBool32(VK_FALSE)
-                msci.minSampleShading = 1
-                msci.pSampleMask = nil
-                msci.alphaToCoverageEnable = VkBool32(VK_FALSE)
-                msci.alphaToOneEnable = VkBool32(VK_FALSE)
-                return msci
-            }
-            func fDepthStencil() -> VkPipelineDepthStencilStateCreateInfo {
-                var dsci = VkPipelineDepthStencilStateCreateInfo()
-                dsci.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO
-                dsci.depthTestEnable = VkBool32(VK_FALSE)   // TODO: enable depth test
-                dsci.depthWriteEnable = VkBool32(VK_FALSE)
-                dsci.depthCompareOp = VK_COMPARE_OP_LESS
-                dsci.depthBoundsTestEnable = VkBool32(VK_FALSE)
-                dsci.stencilTestEnable = VkBool32(VK_FALSE)
-                // dsci.front =
-                // dsci.back =
-                dsci.minDepthBounds = 0
-                dsci.maxDepthBounds = 1
-                return dsci
-            }
-            func fBlend() -> VkPipelineColorBlendStateCreateInfo {
-                // https://www.khronos.org/registry/vulkan/specs/1.0/man/html/VkPipelineColorBlendStateCreateInfo.html
-                var bsci = VkPipelineColorBlendStateCreateInfo()
-                bsci.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO
-                bsci.logicOpEnable = VkBool32(VK_FALSE)
-                bsci.logicOp = VK_LOGIC_OP_SET                  // VkLogicOp, special blend (or,and,xor..)
-                bsci.attachmentCount = 1
-                var att = VkPipelineColorBlendAttachmentState()
-                att.blendEnable = VkBool32(VK_FALSE)            // TODO: ennable blend
-                att.srcColorBlendFactor = VK_BLEND_FACTOR_ONE   // VkBlendFactor
-                att.dstColorBlendFactor = VK_BLEND_FACTOR_ONE
-                att.colorBlendOp = VK_BLEND_OP_ADD
-                att.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE
-                att.dstAlphaBlendFactor  = VK_BLEND_FACTOR_ONE
-                att.alphaBlendOp = VK_BLEND_OP_MAX
-                att.colorWriteMask = VK_COLOR_COMPONENT_R_BIT.rawValue | VK_COLOR_COMPONENT_G_BIT.rawValue | VK_COLOR_COMPONENT_B_BIT.rawValue | VK_COLOR_COMPONENT_A_BIT.rawValue
-                bsci.pAttachments = UnsafePointer(UnsafeMutablePointer(&att))
-                bsci.blendConstants.0 = 1.0 // R
-                bsci.blendConstants.1 = 1.0 // G
-                bsci.blendConstants.2 = 1.0 // B
-                bsci.blendConstants.3 = 1.0 // A
-                return bsci
-            }
-            func fDynamic() -> VkPipelineDynamicStateCreateInfo {
-                var dsci = VkPipelineDynamicStateCreateInfo()
-                dsci.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO
-                var dyn = [VkDynamicState]()
-                // dyn.append(VK_DYNAMIC_STATE_SCISSOR)
-                dsci.dynamicStateCount = UInt32(dyn.count)
-                dsci.pDynamicStates = UnsafePointer(UnsafeMutablePointer(&dyn))
-                return dsci
-            }
             var pipelineInfo = VkGraphicsPipelineCreateInfo()
-            pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO            
-            var stages = fStages()
+            pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO
+
+            var stages = [VkPipelineShaderStageCreateInfo]()
+            var infoVertex = VkPipelineShaderStageCreateInfo()
+            infoVertex.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO
+            infoVertex.stage = VK_SHADER_STAGE_VERTEX_BIT
+            infoVertex.pName = UnsafeRawPointer("vertex").assumingMemoryBound(to:Int8.self)
+            infoVertex.module = self.vertex
+            stages.append(infoVertex)
+            var infoFragment = VkPipelineShaderStageCreateInfo()
+            infoFragment.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO
+            infoFragment.stage = VK_SHADER_STAGE_FRAGMENT_BIT
+            infoFragment.pName = UnsafeRawPointer("fragment").assumingMemoryBound(to:Int8.self)
+            infoFragment.module = self.fragment
+            stages.append(infoFragment)
             pipelineInfo.stageCount = UInt32(stages.count)
-            pipelineInfo.pStages = UnsafePointer(UnsafeMutablePointer(&stages))
-            var vertexInput = fVertexInput(format:format)
-            pipelineInfo.pVertexInputState = UnsafePointer(UnsafeMutablePointer(&vertexInput))
-            var assembly = fAssembly()
-            pipelineInfo.pInputAssemblyState = UnsafePointer(UnsafeMutablePointer(&assembly))
-            var viewports = fViewports()
-            pipelineInfo.pViewportState = UnsafePointer(UnsafeMutablePointer(&viewports))
-            var rasterization = fRasterization()
-            pipelineInfo.pRasterizationState = UnsafePointer(UnsafeMutablePointer(&rasterization))
-            var multisample = fMultisample()
-            pipelineInfo.pMultisampleState = UnsafePointer(UnsafeMutablePointer(&multisample))
-            var depthstencil = fDepthStencil()
-            pipelineInfo.pDepthStencilState = UnsafePointer(UnsafeMutablePointer(&depthstencil))
-            var blend = fBlend()
-            pipelineInfo.pColorBlendState = UnsafePointer(UnsafeMutablePointer(&blend))
-            var dynamic = fDynamic()
-            pipelineInfo.pDynamicState = UnsafePointer(UnsafeMutablePointer(&dynamic))
-            vkCreateGraphicsPipelines(engine.logicalDevice,nil,1, &pipelineInfo,nil,&pipeline)
+            pipelineInfo.pStages = UnsafePointer(UnsafeMutablePointer(mutating:stages))
+
+            var vertexInput = VkPipelineVertexInputStateCreateInfo()
+            vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO
+            var attributes = [VkVertexInputAttributeDescription]()
+            var size = 0
+            var n = 0
+            for vf in format {
+                var d = VkVertexInputAttributeDescription()
+                d.location = UInt32(n)
+                d.offset = UInt32(size)
+                attributes.append(d)
+                n += 1
+                size += vf.bytes
+                attributes.append(d)
+            }
+            vertexInput.vertexAttributeDescriptionCount = UInt32(attributes.count)
+            vertexInput.pVertexAttributeDescriptions = UnsafePointer(UnsafeMutablePointer(mutating:attributes))
+            var binding = VkVertexInputBindingDescription()
+            binding.binding = 0
+            binding.stride = UInt32(size)
+            binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX
+            vertexInput.vertexBindingDescriptionCount = 1
+            vertexInput.pVertexBindingDescriptions = UnsafePointer(UnsafeMutablePointer(mutating:&binding))
+            pipelineInfo.pVertexInputState = UnsafePointer(UnsafeMutablePointer(mutating:&vertexInput))
+
+            var assembly = VkPipelineInputAssemblyStateCreateInfo()
+            assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO
+            assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST // VkPrimitiveTopology
+            assembly.primitiveRestartEnable = VkBool32(VK_FALSE)
+            pipelineInfo.pInputAssemblyState = UnsafePointer(UnsafeMutablePointer(mutating:&assembly))
+
+            var viewports = VkPipelineViewportStateCreateInfo()
+            viewports.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO
+            var vps = [VkViewport]()
+            var vp = VkViewport()  
+            vp.x = -1
+            vp.y = 1
+            vp.width = 2
+            vp.height = 2
+            vp.minDepth = 0
+            vp.maxDepth = 1
+            vps.append(vp)
+            viewports.viewportCount = UInt32(vps.count)
+            viewports.pViewports = UnsafePointer(UnsafeMutablePointer(mutating:vps))
+            pipelineInfo.pViewportState = UnsafePointer(UnsafeMutablePointer(mutating:&viewports))
+
+            var rasterization = VkPipelineRasterizationStateCreateInfo()
+            rasterization.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO
+            rasterization.depthClampEnable = VkBool32(VK_TRUE)
+            rasterization.rasterizerDiscardEnable = VkBool32(VK_TRUE)
+            rasterization.polygonMode = VK_POLYGON_MODE_FILL         // VkPolygonMode
+            rasterization.cullMode = VK_CULL_MODE_BACK_BIT.rawValue  // VkCullModeFlagBits
+            rasterization.frontFace = VK_FRONT_FACE_CLOCKWISE        // VkFrontFace
+            rasterization.depthBiasEnable = VkBool32(VK_FALSE)
+            rasterization.lineWidth = 1
+            pipelineInfo.pRasterizationState = UnsafePointer(UnsafeMutablePointer(mutating:&rasterization))
+
+            // https://www.khronos.org/registry/vulkan/specs/1.0/html/vkspec.html#primsrast-sampleshading
+            var multisample = VkPipelineMultisampleStateCreateInfo()
+            multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO
+            multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT   // VkSampleCountFlagBits
+            multisample.sampleShadingEnable = VkBool32(VK_FALSE)
+            multisample.minSampleShading = 1
+            multisample.pSampleMask = nil
+            multisample.alphaToCoverageEnable = VkBool32(VK_FALSE)
+            multisample.alphaToOneEnable = VkBool32(VK_FALSE)
+            pipelineInfo.pMultisampleState = UnsafePointer(UnsafeMutablePointer(mutating:&multisample))
+
+            var depthstencil = VkPipelineDepthStencilStateCreateInfo()
+            depthstencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO
+            depthstencil.depthTestEnable = VkBool32(VK_FALSE)   // TODO: enable depth test
+            depthstencil.depthWriteEnable = VkBool32(VK_FALSE)
+            depthstencil.depthCompareOp = VK_COMPARE_OP_LESS
+            depthstencil.depthBoundsTestEnable = VkBool32(VK_FALSE)
+            depthstencil.stencilTestEnable = VkBool32(VK_FALSE)
+            // depthstencil.front =
+            // depthstencil.back =
+            depthstencil.minDepthBounds = 0
+            depthstencil.maxDepthBounds = 1
+            pipelineInfo.pDepthStencilState = UnsafePointer(UnsafeMutablePointer(mutating:&depthstencil))
+            
+            var blend = VkPipelineColorBlendStateCreateInfo()
+                // https://www.khronos.org/registry/vulkan/specs/1.0/man/html/VkPipelineColorBlendStateCreateInfo.html
+            blend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO
+            blend.logicOpEnable = VkBool32(VK_FALSE)
+            blend.logicOp = VK_LOGIC_OP_SET                  // VkLogicOp, special blend (or,and,xor..)
+            blend.attachmentCount = 1
+            var att = VkPipelineColorBlendAttachmentState()
+            att.blendEnable = VkBool32(VK_FALSE)            // TODO: ennable blend
+            att.srcColorBlendFactor = VK_BLEND_FACTOR_ONE   // VkBlendFactor
+            att.dstColorBlendFactor = VK_BLEND_FACTOR_ONE
+            att.colorBlendOp = VK_BLEND_OP_ADD
+            att.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE
+            att.dstAlphaBlendFactor  = VK_BLEND_FACTOR_ONE
+            att.alphaBlendOp = VK_BLEND_OP_MAX
+            att.colorWriteMask = VK_COLOR_COMPONENT_R_BIT.rawValue | VK_COLOR_COMPONENT_G_BIT.rawValue | VK_COLOR_COMPONENT_B_BIT.rawValue | VK_COLOR_COMPONENT_A_BIT.rawValue
+            blend.pAttachments = UnsafePointer(UnsafeMutablePointer(mutating:&att))
+            blend.blendConstants.0 = 1.0 // R
+            blend.blendConstants.1 = 1.0 // G
+            blend.blendConstants.2 = 1.0 // B
+            blend.blendConstants.3 = 1.0 // A
+            pipelineInfo.pColorBlendState = UnsafePointer(UnsafeMutablePointer(mutating:&blend))
+            
+            var dynamic = VkPipelineDynamicStateCreateInfo()
+            depthstencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO
+
+            var dyn = [VkDynamicState]()
+            // dyn.append(VK_DYNAMIC_STATE_SCISSOR)
+            dynamic.dynamicStateCount = UInt32(dyn.count)
+            dynamic.pDynamicStates = UnsafePointer(UnsafeMutablePointer(mutating:dyn))
+            pipelineInfo.pDynamicState = UnsafePointer(UnsafeMutablePointer(mutating:&dynamic))
+            ll.vkCreateGraphicsPipelines!(engine.logicalDevice,nil,1, &pipelineInfo,nil,&pipeline)
         }
     }
     public class Buffer {
@@ -690,11 +680,13 @@ public class Tin {
                 self.rawValue = rawValue
             }
         }
+        var ll:LunarLayer
         var engine:Tin
         var buffer:VkBuffer?
         var memory:VkDeviceMemory?
         public private(set) var size:Int
         public init?(engine:Tin,size:Int,usage:Usage=[.UniformBuffer,.indexBuffer,.vertexBuffer]) {
+            self.ll = engine.ll
             self.engine = engine
             self.size = size
             var ci = VkBufferCreateInfo()
@@ -702,35 +694,35 @@ public class Tin {
             ci.size = UInt64(size)
             ci.usage = UInt32(usage.rawValue)
             ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE
-            if vkCreateBuffer(engine.logicalDevice, &ci, nil, &buffer) != VK_SUCCESS {
+            if ll.vkCreateBuffer!(engine.logicalDevice, &ci, nil, &buffer) != VK_SUCCESS {
                 return nil
             }
             var memRequirements = VkMemoryRequirements()
-            vkGetBufferMemoryRequirements(engine.logicalDevice, buffer, &memRequirements)
+            ll.vkGetBufferMemoryRequirements!(engine.logicalDevice, buffer, &memRequirements)
             var allocInfo = VkMemoryAllocateInfo()
             allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO
             allocInfo.allocationSize = memRequirements.size
             allocInfo.memoryTypeIndex = 0
-            if vkAllocateMemory(engine.logicalDevice, &allocInfo, nil, &memory) != VK_SUCCESS {
+            if ll.vkAllocateMemory!(engine.logicalDevice, &allocInfo, nil, &memory) != VK_SUCCESS {
                 return nil
             }
-            vkBindBufferMemory(engine.logicalDevice, buffer, memory, 0);            
+            ll.vkBindBufferMemory!(engine.logicalDevice, buffer, memory, 0);            
         }
         deinit {
             if memory != nil {
-                vkFreeMemory(engine.logicalDevice,memory,nil)
+                ll.vkFreeMemory!(engine.logicalDevice,memory,nil)
                 memory = nil
             }
             if buffer != nil {
-                vkDestroyBuffer(engine.logicalDevice, buffer, nil)
+                ll.vkDestroyBuffer!(engine.logicalDevice, buffer, nil)
                 buffer = nil
             }
         }
         public func withMemoryMap(fn:(UnsafeMutableRawPointer)->()) {
             var data : UnsafeMutableRawPointer?
-            if vkMapMemory(engine.logicalDevice, memory, 0, UInt64(size), 0, UnsafeMutablePointer(&data)) == VK_SUCCESS {
+            if ll.vkMapMemory!(engine.logicalDevice, memory, 0, UInt64(size), 0, UnsafeMutablePointer(&data)) == VK_SUCCESS {
                 fn(data!)
-                vkUnmapMemory(engine.logicalDevice, memory)
+                ll.vkUnmapMemory!(engine.logicalDevice, memory)
             }
         }
     }
@@ -743,6 +735,7 @@ public class Tin {
 
     var window:Window
     var instance:VkInstance?=nil
+    var ll:LunarLayer
     var surface:VkSurfaceKHR?=nil
     var devices=[Device]()
     var device:Device?
@@ -756,7 +749,9 @@ public class Tin {
 
     init(window:Window) {
         self.window = window
+        self.ll = LunarLayer()
         if createInstance(app:window.title) {
+            ll.instantiate(instance!)
             enumerateDevices()
             createDevice(0)
             createQueue()
@@ -766,29 +761,29 @@ public class Tin {
         }
     }
     deinit {
-        NSLog("Vulkan: destroy")
+        NSLog("vulkan: destroy")
         if let device = logicalDevice {
-            vkDeviceWaitIdle(device)
+            ll.vkDeviceWaitIdle!(device)
         }
         if instance != nil {
             if swapchain != nil {
                 destroySwapchain()
                 swapchain = nil
             }
-            NSLog("Vulkan: swapchain destroyed")
+            NSLog("vulkan: swapchain destroyed")
             if logicalDevice != nil {
-                vkDestroyDevice(logicalDevice, nil)
+                ll.vkDestroyDevice!(logicalDevice, nil)
                 logicalDevice = nil
             }
-            NSLog("Vulkan: device destroyed")
+            NSLog("vulkan: device destroyed")
             if surface != nil {
-                vkDestroySurfaceKHR(instance,surface,nil)
+                ll.vkDestroySurfaceKHR!(instance,surface,nil)
                 surface = nil
             }
-            NSLog("Vulkan: surface destroyed")
-            vkDestroyInstance(instance,nil)
+            NSLog("vulkan: surface destroyed")
+            ll.vkDestroyInstance!(instance,nil)
             instance = nil
-            NSLog("Vulkan: instance destroyed")
+            NSLog("vulkan: instance destroyed")
         }
     }
 
@@ -806,26 +801,48 @@ public class Tin {
         icInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO
         icInfo.pNext = nil
         icInfo.flags = 0
-        let ext = [ UnsafePointer(strdup(VK_KHR_SURFACE_EXTENSION_NAME)), UnsafePointer(strdup(VK_KHR_XCB_SURFACE_EXTENSION_NAME))]
+        var ext = [ UnsafePointer(strdup(VK_KHR_SURFACE_EXTENSION_NAME)), UnsafePointer(strdup(VK_KHR_XCB_SURFACE_EXTENSION_NAME))]
+        if ll.lunar {
+            ext.append(UnsafePointer(strdup(VK_EXT_DEBUG_REPORT_EXTENSION_NAME)))
+            NSLog("vulkan: enable debug report extension")
+        } else {
+            NSLog("vulkan: enable debug report extension")
+        }
         var result : VkResult = VK_INCOMPLETE
         ext.withUnsafeBufferPointer { pext in
+            var enabled=["VK_LAYER_VALVE_steam_overlay_64","VK_LAYER_LUNARG_standard_validation"]
+            var names = [UnsafePointer<Int8>]()
+            for l in ll.layers() {
+                if enabled.contains(l.name) {
+                    names.append(UnsafePointer(strdup(l.name))) 
+                    NSLog("vulkan: \(l.name) enabled")
+                }
+            }
             icInfo.enabledExtensionCount = UInt32(pext.count)
             icInfo.ppEnabledExtensionNames = pext.baseAddress
             icInfo.pApplicationInfo = UnsafePointer(UnsafeMutablePointer(&appInfo))
-            result = vkCreateInstance(&icInfo,nil,&instance)
+            if ll.lunar {
+                icInfo.enabledLayerCount = UInt32(names.count)
+                icInfo.ppEnabledLayerNames = UnsafePointer(UnsafeMutableRawPointer(mutating:names).assumingMemoryBound(to:UnsafePointer<Int8>?.self))
+            }
+            result = ll.vkCreateInstance!(&icInfo,nil,&instance)
             switch result {
                 case VK_ERROR_INCOMPATIBLE_DRIVER:
-                NSLog("Vulkan: Incompatible driver")
+                NSLog("vulkan: Incompatible driver")
                 case VK_SUCCESS:
-                NSLog("Vulkan: Instance OK")
+                NSLog("vulkan: Instance OK")
                 default:
-                NSLog("Vulkan: Instance error: \(result)")
+                NSLog("vulkan: Instance error: \(result)")
+            }
+            for n in names {
+                free(UnsafeMutableRawPointer(mutating:n))
             }
         }
         free(UnsafeMutableRawPointer(mutating:appInfo.pApplicationName))
         free(UnsafeMutableRawPointer(mutating:appInfo.pEngineName))
-        free(UnsafeMutableRawPointer(mutating:ext[0]))
-        free(UnsafeMutableRawPointer(mutating:ext[1]))
+        for e in ext {
+            free(UnsafeMutableRawPointer(mutating:e))
+        }
         return result == VK_SUCCESS
     }
     func createSurface() {
@@ -835,12 +852,12 @@ public class Tin {
         scinfo.flags = 0
         scinfo.connection = window.connection
         scinfo.window = window.windowId
-        let result = vkCreateXcbSurfaceKHR(instance, &scinfo, nil, &surface)
+        let result = ll.vkCreateXcbSurfaceKHR!(instance, &scinfo, nil, &surface)
         switch result {
             case VK_SUCCESS:
-            NSLog("Vulkan: Surface OK")
+            NSLog("vulkan: Surface OK")
             default:
-            NSLog("Vulkan: Surface error: \(result)")
+            NSLog("vulkan: Surface error: \(result)")
         }
     }
     func enumerateDevices() {
@@ -848,19 +865,19 @@ public class Tin {
         var result = vkEnumeratePhysicalDevices(instance, &deviceCount, nil)
         if result == VK_SUCCESS && deviceCount>0 {
             var dev = [VkPhysicalDevice?](repeating:nil, count:Int(deviceCount))
-            result = vkEnumeratePhysicalDevices(instance, &deviceCount, &dev)
+            result = ll.vkEnumeratePhysicalDevices!(instance, &deviceCount, &dev)
             if result == VK_SUCCESS {
-                NSLog("Vulkan: found \(deviceCount) device")
+                NSLog("vulkan: found \(deviceCount) device")
                 for i in 0..<Int(deviceCount) {
                     var prop = VkPhysicalDeviceProperties()
                     vkGetPhysicalDeviceProperties(dev[i],&prop)
-                    let p = Device(device: dev[i]!, properties:prop)
+                    let p = Device(ll:ll,device: dev[i]!, properties:prop)
                     devices.append(p)
-                    NSLog("Vulkan: device \(p.deviceName)")
+                    NSLog("vulkan: device \(p.deviceName)")
                 }
             }
         } else {
-            NSLog("Vulkan: error \(result), no device")
+            NSLog("vulkan: error \(result), no device")
         }
     }
     func createDevice(_ idev:Int) {
@@ -882,17 +899,17 @@ public class Tin {
         deviceInfo.enabledExtensionCount = 0
         deviceInfo.ppEnabledExtensionNames = nil
         deviceInfo.pEnabledFeatures = nil;
-        if vkCreateDevice(device!.physicalDevice, &deviceInfo, nil, &logicalDevice) == VK_SUCCESS {
-            NSLog("Vulkan: device OK")
+        if ll.vkCreateDevice!(device!.physicalDevice, &deviceInfo, nil, &logicalDevice) == VK_SUCCESS {
+            NSLog("vulkan: device OK")
         }
     }
     func createQueue() {
         var i = 0
         for fp in device!.queuesProperties {
             if fp.queueFlags & VK_QUEUE_GRAPHICS_BIT.rawValue != 0 {
-                vkGetDeviceQueue(logicalDevice, UInt32(i), 0, &queue)
+                ll.vkGetDeviceQueue!(logicalDevice, UInt32(i), 0, &queue)
                 queueIndex = UInt32(i)
-                NSLog("Vulkan: queue OK")
+                NSLog("vulkan: queue OK")
                 break
             }
             i += 1
@@ -904,13 +921,13 @@ public class Tin {
         cmdPoolInfo.pNext = nil
         cmdPoolInfo.queueFamilyIndex = queueIndex
         cmdPoolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT.rawValue
-        if vkCreateCommandPool(logicalDevice, &cmdPoolInfo, nil, &commandPool) == VK_SUCCESS {
-            NSLog("Vulkan: Command Pool OK")
+        if ll.vkCreateCommandPool!(logicalDevice, &cmdPoolInfo, nil, &commandPool) == VK_SUCCESS {
+            NSLog("vulkan: Command Pool OK")
         }
     }
     func createSwapchain() {
         var caps = VkSurfaceCapabilitiesKHR()
-        if vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device!.physicalDevice,surface,&caps) == VK_SUCCESS {
+        if ll.vkGetPhysicalDeviceSurfaceCapabilitiesKHR!(device!.physicalDevice,surface,&caps) == VK_SUCCESS {
             var size = VkExtent2D()
             if caps.currentExtent.width == 0xFFFFFFFF || caps.currentExtent.height == 0xFFFFFFFF {
                 size.width = UInt32(window.width)
@@ -920,7 +937,7 @@ public class Tin {
             }
             var presentModeCount : UInt32 = 0
             var presentModes = [VkPresentModeKHR]()
-            if vkGetPhysicalDeviceSurfacePresentModesKHR(device!.physicalDevice,surface,&presentModeCount,nil) == VK_SUCCESS && presentModeCount>0 {
+            if ll.vkGetPhysicalDeviceSurfacePresentModesKHR!(device!.physicalDevice,surface,&presentModeCount,nil) == VK_SUCCESS && presentModeCount>0 {
                 presentModes = [VkPresentModeKHR](repeating:VK_PRESENT_MODE_MAX_ENUM_KHR,count:Int(presentModeCount))
                 vkGetPhysicalDeviceSurfacePresentModesKHR(device!.physicalDevice,surface,&presentModeCount,&presentModes)
             }
@@ -948,13 +965,13 @@ public class Tin {
             swapchainCreateInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR
             swapchainCreateInfo.presentMode = pmode
             swapchainCreateInfo.oldSwapchain = swapchain
-            if vkCreateSwapchainKHR(logicalDevice, &swapchainCreateInfo, nil, &swapchain) == VK_SUCCESS {
+            if ll.vkCreateSwapchainKHR!(logicalDevice, &swapchainCreateInfo, nil, &swapchain) == VK_SUCCESS {
                 let mode = pmode == VK_PRESENT_MODE_FIFO_KHR ? "mode: fifo" : ""
-                NSLog("Vulkan: swapchain OK, \(mode)")
+                NSLog("vulkan: swapchain OK, \(mode)")
                 var imageCount:UInt32 = 0
-                if vkGetSwapchainImagesKHR(logicalDevice, swapchain, &imageCount, nil) == VK_SUCCESS {
+                if ll.vkGetSwapchainImagesKHR!(logicalDevice, swapchain, &imageCount, nil) == VK_SUCCESS {
                     var images = [VkImage?](repeating:nil,count:Int(imageCount))
-                    if vkGetSwapchainImagesKHR(logicalDevice, swapchain, &imageCount, &images) == VK_SUCCESS {
+                    if ll.vkGetSwapchainImagesKHR!(logicalDevice, swapchain, &imageCount, &images) == VK_SUCCESS {
                         if let cb = CommandBuffer(engine:self) {
                             for image in images {
                                 cb.setImageLayout(image:image!,aspects:VK_IMAGE_ASPECT_COLOR_BIT.rawValue,oldLayout:VK_IMAGE_LAYOUT_UNDEFINED,newLayout:VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
@@ -981,7 +998,7 @@ public class Tin {
                             imageCreateInfo.flags = 0
                             imageCreateInfo.image = image
                             var view:VkImageView?
-                            if vkCreateImageView(logicalDevice, &imageCreateInfo, nil, &view) == VK_SUCCESS {
+                            if ll.vkCreateImageView!(logicalDevice, &imageCreateInfo, nil, &view) == VK_SUCCESS {
                                 var fbCreateInfo = VkFramebufferCreateInfo()
                                 fbCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO
                                 fbCreateInfo.attachmentCount = 1
@@ -990,13 +1007,13 @@ public class Tin {
                                 fbCreateInfo.height = size.height
                                 fbCreateInfo.layers = 1
                                 var framebuffer : VkFramebuffer?
-                                if vkCreateFramebuffer(logicalDevice, &fbCreateInfo, nil, &framebuffer) == VK_SUCCESS {
+                                if ll.vkCreateFramebuffer!(logicalDevice, &fbCreateInfo, nil, &framebuffer) == VK_SUCCESS {
                                     self.images.append(Image(image:image!,view:view!,framebuffer:framebuffer!,width:Int(size.width),height:Int(size.height)))
                                 }
                             }
                         }
                         if images.count == self.images.count {
-                            NSLog("Vulkan: images OK, count: \(imageCount)")
+                            NSLog("vulkan: images OK, count: \(imageCount)")
                         }
                     }
                 }
@@ -1004,14 +1021,14 @@ public class Tin {
         }
     }
     func destroySwapchain() {
-        vkDeviceWaitIdle(logicalDevice)
+        ll.vkDeviceWaitIdle!(logicalDevice)
         for i in images {
-            vkDestroyFramebuffer(logicalDevice, i.framebuffer, nil)
-            vkDestroyImageView(logicalDevice, i.view, nil)
+            ll.vkDestroyFramebuffer!(logicalDevice, i.framebuffer, nil)
+            ll.vkDestroyImageView!(logicalDevice, i.view, nil)
             // i.image, handled by the swapchain, no destroy...
         }
         images.removeAll()
-        vkDestroySwapchainKHR(logicalDevice,swapchain,nil)
+        ll.vkDestroySwapchainKHR!(logicalDevice,swapchain,nil)
     }
     func resizeSwapchain() {
         destroySwapchain()
@@ -1020,7 +1037,7 @@ public class Tin {
     func aquire() -> Bool {
         vkQueueWaitIdle(queue)
         imageIndex = (imageIndex + 1) & 1
-        if vkAcquireNextImageKHR(logicalDevice,swapchain,100000000,nil,nil,&imageIndex) == VK_SUCCESS {
+        if ll.vkAcquireNextImageKHR!(logicalDevice,swapchain,100000000,nil,nil,&imageIndex) == VK_SUCCESS {
             return true
         }
         return false
@@ -1033,7 +1050,7 @@ public class Tin {
             presentInfo.swapchainCount = 1
             presentInfo.pSwapchains = UnsafePointer(UnsafeMutablePointer(&swapchain))
             presentInfo.pImageIndices = UnsafePointer(UnsafeMutablePointer(&imageIndex))
-            if vkQueuePresentKHR(queue, &presentInfo) == VK_SUCCESS {
+            if ll.vkQueuePresentKHR!(queue, &presentInfo) == VK_SUCCESS {
                 return true
             }
         }
