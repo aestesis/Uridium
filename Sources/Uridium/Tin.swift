@@ -512,7 +512,7 @@ public class Tin {
             }
         }
         deinit {
-
+            // TODO: destroy pipeline
         }
         func createShaderModule(code:[UInt8]) -> VkShaderModule? {
             var createInfo = VkShaderModuleCreateInfo()
@@ -544,7 +544,7 @@ public class Tin {
             infoFragment.module = self.fragment
             stages.append(infoFragment)
             pipelineInfo.stageCount = UInt32(stages.count)
-            pipelineInfo.pStages = UnsafePointer(UnsafeMutablePointer(mutating:stages))
+            pipelineInfo.pStages = UnsafePointer(stages)
 
             var vertexInput = VkPipelineVertexInputStateCreateInfo()
             vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO
@@ -561,20 +561,20 @@ public class Tin {
                 attributes.append(d)
             }
             vertexInput.vertexAttributeDescriptionCount = UInt32(attributes.count)
-            vertexInput.pVertexAttributeDescriptions = UnsafePointer(UnsafeMutablePointer(mutating:attributes))
+            vertexInput.pVertexAttributeDescriptions = UnsafePointer(attributes)
             var binding = VkVertexInputBindingDescription()
             binding.binding = 0
             binding.stride = UInt32(size)
             binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX
             vertexInput.vertexBindingDescriptionCount = 1
-            vertexInput.pVertexBindingDescriptions = UnsafePointer(UnsafeMutablePointer(mutating:&binding))
-            pipelineInfo.pVertexInputState = UnsafePointer(UnsafeMutablePointer(mutating:&vertexInput))
+            vertexInput.pVertexBindingDescriptions = withUnsafePointer(to:&binding) {$0}
+            pipelineInfo.pVertexInputState = withUnsafePointer(to:&vertexInput) {$0}
 
             var assembly = VkPipelineInputAssemblyStateCreateInfo()
             assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO
             assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST // VkPrimitiveTopology
             assembly.primitiveRestartEnable = VkBool32(VK_FALSE)
-            pipelineInfo.pInputAssemblyState = UnsafePointer(UnsafeMutablePointer(mutating:&assembly))
+            pipelineInfo.pInputAssemblyState = withUnsafePointer(to:&assembly) {$0}
 
             var viewports = VkPipelineViewportStateCreateInfo()
             viewports.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO
@@ -588,8 +588,8 @@ public class Tin {
             vp.maxDepth = 1
             vps.append(vp)
             viewports.viewportCount = UInt32(vps.count)
-            viewports.pViewports = UnsafePointer(UnsafeMutablePointer(mutating:vps))
-            pipelineInfo.pViewportState = UnsafePointer(UnsafeMutablePointer(mutating:&viewports))
+            viewports.pViewports = UnsafePointer(vps)
+            pipelineInfo.pViewportState = withUnsafePointer(to:&viewports) {$0}
 
             var rasterization = VkPipelineRasterizationStateCreateInfo()
             rasterization.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO
@@ -600,7 +600,7 @@ public class Tin {
             rasterization.frontFace = VK_FRONT_FACE_CLOCKWISE        // VkFrontFace
             rasterization.depthBiasEnable = VkBool32(VK_FALSE)
             rasterization.lineWidth = 1
-            pipelineInfo.pRasterizationState = UnsafePointer(UnsafeMutablePointer(mutating:&rasterization))
+            pipelineInfo.pRasterizationState = withUnsafePointer(to:&rasterization) {$0}
 
             // https://www.khronos.org/registry/vulkan/specs/1.0/html/vkspec.html#primsrast-sampleshading
             var multisample = VkPipelineMultisampleStateCreateInfo()
@@ -611,7 +611,7 @@ public class Tin {
             multisample.pSampleMask = nil
             multisample.alphaToCoverageEnable = VkBool32(VK_FALSE)
             multisample.alphaToOneEnable = VkBool32(VK_FALSE)
-            pipelineInfo.pMultisampleState = UnsafePointer(UnsafeMutablePointer(mutating:&multisample))
+            pipelineInfo.pMultisampleState = withUnsafePointer(to:&multisample) {$0}
 
             var depthstencil = VkPipelineDepthStencilStateCreateInfo()
             depthstencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO
@@ -624,7 +624,7 @@ public class Tin {
             // depthstencil.back =
             depthstencil.minDepthBounds = 0
             depthstencil.maxDepthBounds = 1
-            pipelineInfo.pDepthStencilState = UnsafePointer(UnsafeMutablePointer(mutating:&depthstencil))
+            pipelineInfo.pDepthStencilState = withUnsafePointer(to:&depthstencil) {$0}
             
             var blend = VkPipelineColorBlendStateCreateInfo()
                 // https://www.khronos.org/registry/vulkan/specs/1.0/man/html/VkPipelineColorBlendStateCreateInfo.html
@@ -641,22 +641,22 @@ public class Tin {
             att.dstAlphaBlendFactor  = VK_BLEND_FACTOR_ONE
             att.alphaBlendOp = VK_BLEND_OP_MAX
             att.colorWriteMask = VK_COLOR_COMPONENT_R_BIT.rawValue | VK_COLOR_COMPONENT_G_BIT.rawValue | VK_COLOR_COMPONENT_B_BIT.rawValue | VK_COLOR_COMPONENT_A_BIT.rawValue
-            blend.pAttachments = UnsafePointer(UnsafeMutablePointer(mutating:&att))
+            blend.pAttachments = withUnsafePointer(to:&att) {$0}
             blend.blendConstants.0 = 1.0 // R
             blend.blendConstants.1 = 1.0 // G
             blend.blendConstants.2 = 1.0 // B
             blend.blendConstants.3 = 1.0 // A
-            pipelineInfo.pColorBlendState = UnsafePointer(UnsafeMutablePointer(mutating:&blend))
+            pipelineInfo.pColorBlendState = withUnsafePointer(to:&blend) {$0}
             
             var dynamic = VkPipelineDynamicStateCreateInfo()
-            depthstencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO
-
+            dynamic.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO
             var dyn = [VkDynamicState]()
             // dyn.append(VK_DYNAMIC_STATE_SCISSOR)
             dynamic.dynamicStateCount = UInt32(dyn.count)
-            dynamic.pDynamicStates = UnsafePointer(UnsafeMutablePointer(mutating:dyn))
-            pipelineInfo.pDynamicState = UnsafePointer(UnsafeMutablePointer(mutating:&dynamic))
-            return ll.vkCreateGraphicsPipelines!(engine.logicalDevice,nil,1, &pipelineInfo,nil,&pipeline) == VK_SUCCESS
+            dynamic.pDynamicStates = UnsafePointer(dyn)
+            pipelineInfo.pDynamicState = withUnsafePointer(to:&dynamic) {$0}
+            
+            return ll.vkCreateGraphicsPipelines!(engine.logicalDevice,nil,1,&pipelineInfo,nil,&pipeline) == VK_SUCCESS
         }
     }
     public class Buffer : TinNode {
