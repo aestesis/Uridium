@@ -21,6 +21,14 @@ import Vulkan
 import Foundation
 
 public class Tin {
+    public class TinNode {
+        let ll:LunarLayer
+        let engine:Tin
+        init?(engine:Tin) {
+            self.ll = engine.ll
+            self.engine = engine
+        }
+    }
     public class Device {
         public struct MemoryProperties {
             public var types:[VkMemoryType]
@@ -112,13 +120,10 @@ public class Tin {
             return nil;
         }
     }
-    public class CommandBuffer {
-        let ll:LunarLayer
-        let engine:Tin
+    public class CommandBuffer : TinNode {
         var cb:VkCommandBuffer?
-        public init?(engine:Tin) {
-            self.ll = engine.ll
-            self.engine = engine
+        public override init?(engine:Tin) {
+            super.init(engine:engine)
             var setupBufferInfo = VkCommandBufferAllocateInfo()
             setupBufferInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO
             setupBufferInfo.commandPool = engine.commandPool
@@ -190,9 +195,7 @@ public class Tin {
             ll.vkCmdPipelineBarrier!(cb, srcFlags, dstFlags, 0, 0, nil, 0, nil, 1, &imageBarrier);
         }
     }
-    public class Texture {
-        let ll:LunarLayer
-        let engine:Tin
+    public class Texture : TinNode {
         var needStaging = false
         var image:VkImage?
         var imageLayout:VkImageLayout = VK_IMAGE_LAYOUT_UNDEFINED
@@ -202,10 +205,9 @@ public class Tin {
         let width:Int
         let height:Int
         public init?(engine:Tin,width:Int,height:Int,pixels:[UInt32]? = nil) {
-            self.ll = engine.ll
-            self.engine = engine
             self.width = width
             self.height = height
+            super.init(engine:engine)
 
             var formatProps = VkFormatProperties()
             ll.vkGetPhysicalDeviceFormatProperties!(engine.device!.physicalDevice, VK_FORMAT_R8G8B8A8_UNORM, &formatProps);
@@ -394,15 +396,12 @@ public class Tin {
             // TODO: ???
         }
     }
-    public class RenderPass {
-        let ll:LunarLayer
-        let engine:Tin
+    public class RenderPass : TinNode {
         var renderPass:VkRenderPass?
         var cb:CommandBuffer?
         var framebuffer:VkFramebuffer?
         init?(engine:Tin, to image:Image) {
-            self.ll = engine.ll
-            self.engine = engine
+            super.init(engine:engine)
             var colorAttachment = VkAttachmentDescription()
             colorAttachment.format = VK_FORMAT_B8G8R8A8_UNORM
             colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT
@@ -436,9 +435,8 @@ public class Tin {
                 ll.vkDestroyFramebuffer!(engine.logicalDevice, framebuffer, nil)
             }
         }
-        public init(engine:Tin, to texture:Texture) {
-            self.ll = engine.ll
-            self.engine = engine
+        public init?(engine:Tin, to texture:Texture) {
+            super.init(engine:engine)
             // TODO:
             NSLog("Not Implemented")
         }
@@ -469,7 +467,7 @@ public class Tin {
             // TODO: vkCmdDraw
         }
     }
-    public class Pipeline {
+    public class Pipeline : TinNode {
         // https://vulkan-tutorial.com/Drawing_a_triangle/Graphics_pipeline_basics/Introduction
         // https://www.khronos.org/registry/vulkan/specs/1.0/html/vkspec.html#pipelines-graphics
         public enum VertexFormat {
@@ -502,17 +500,20 @@ public class Tin {
                 }
             }
         }
-        let ll:LunarLayer
-        let engine:Tin
         var vertex : VkShaderModule?
         var fragment : VkShaderModule?
         var pipeline:VkPipeline?
-        public init(engine:Tin,vertex:[UInt8],fragment:[UInt8],format:[VertexFormat]) {
-            self.ll = engine.ll
-            self.engine = engine
+        public init?(engine:Tin,vertex:[UInt8],fragment:[UInt8],format:[VertexFormat]) {
+            super.init(engine:engine)
             self.vertex = createShaderModule(code:vertex)
             self.fragment = createShaderModule(code:fragment)
-            self.createPipeline(format:format)
+            if !self.createPipeline(format:format) {
+                // TODO: destroy shaders
+                return nil
+            }
+        }
+        deinit {
+
         }
         func createShaderModule(code:[UInt8]) -> VkShaderModule? {
             var createInfo = VkShaderModuleCreateInfo()
@@ -526,7 +527,7 @@ public class Tin {
             ll.vkCreateShaderModule!(engine.logicalDevice,&createInfo,nil,&shader)
             return shader
         }
-        func createPipeline(format:[VertexFormat]) {
+        func createPipeline(format:[VertexFormat]) -> Bool {
             var pipelineInfo = VkGraphicsPipelineCreateInfo()
             pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO
 
@@ -656,12 +657,10 @@ public class Tin {
             dynamic.dynamicStateCount = UInt32(dyn.count)
             dynamic.pDynamicStates = UnsafePointer(UnsafeMutablePointer(mutating:dyn))
             pipelineInfo.pDynamicState = UnsafePointer(UnsafeMutablePointer(mutating:&dynamic))
-            NSLog("urdidium: will create pipeline")
-            ll.vkCreateGraphicsPipelines!(engine.logicalDevice,nil,1, &pipelineInfo,nil,&pipeline)
-            NSLog("urdidium: pipeline OK")
+            return ll.vkCreateGraphicsPipelines!(engine.logicalDevice,nil,1, &pipelineInfo,nil,&pipeline) == VK_SUCCESS
         }
     }
-    public class Buffer {
+    public class Buffer : TinNode {
         // https://vulkan-tutorial.com/Vertex_buffers/Vertex_buffer_creation
         public struct Usage : OptionSet {
             public let rawValue:Int
@@ -678,15 +677,12 @@ public class Tin {
                 self.rawValue = rawValue
             }
         }
-        var ll:LunarLayer
-        var engine:Tin
         var buffer:VkBuffer?
         var memory:VkDeviceMemory?
         public private(set) var size:Int
         public init?(engine:Tin,size:Int,usage:Usage=[.UniformBuffer,.indexBuffer,.vertexBuffer]) {
-            self.ll = engine.ll
-            self.engine = engine
             self.size = size
+            super.init(engine:engine)
             var ci = VkBufferCreateInfo()
             ci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO
             ci.size = UInt64(size)
@@ -781,19 +777,18 @@ public class Tin {
             return nil
         }
     }
-    class Swapchain {
+    class Swapchain : TinNode {
         public private(set) var colorFormat : VkFormat = VK_FORMAT_B8G8R8A8_UNORM
-        let ll:LunarLayer
-        let engine:Tin
         var swapchain:VkSwapchainKHR?
         var images=[Image]()
         var imageIndex:UInt32=0
-        init(engine:Tin,width:Int,height:Int) {
-            self.engine = engine
-            self.ll = self.engine.ll
-            self.createSwapchain(width: width, height: width)
+        init?(engine:Tin,width:Int,height:Int) {
+            super.init(engine:engine)
+            if !self.createSwapchain(width: width, height: width) {
+                return nil
+            }
         }
-        func createSwapchain(width:Int,height:Int) {
+        func createSwapchain(width:Int,height:Int) -> Bool {
             var iskhr = VkBool32(VK_FALSE)
             ll.vkGetPhysicalDeviceSurfaceSupportKHR!(engine.device!.physicalDevice,engine.queueIndex,engine.surface,&iskhr)
             if iskhr != VK_FALSE {
@@ -865,6 +860,7 @@ public class Tin {
                                 }
                                 if images.count == self.images.count {
                                     NSLog("urdidium: images OK, count: \(imageCount)")
+                                    return true
                                 }
                             }
                         }
@@ -874,6 +870,7 @@ public class Tin {
                 NSLog("urdidium: not implemented")
                 // TODO: ???
             }
+            return false
         }
         func destroySwapchain() {
             ll.vkDeviceWaitIdle!(engine.logicalDevice)
@@ -905,6 +902,40 @@ public class Tin {
                 }
             }
             return false
+        }
+    }
+    class Fence : TinNode {           // GPU -> CPU   // manual reset
+        var fence:VkFence?
+        override init?(engine:Tin) {
+            super.init(engine:engine)
+            var info = VkFenceCreateInfo()
+            info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO
+            if vkCreateFence(engine.logicalDevice,&info,nil,&fence) != VK_SUCCESS {
+                return nil
+            }
+        }
+        deinit {
+            vkDestroyFence(engine.logicalDevice,fence,nil)
+        }
+        func reset() {
+            vkResetFences(engine.logicalDevice,1,&fence)
+        }
+        var signaled : Bool {
+            return vkGetFenceStatus(engine.logicalDevice,fence) == VK_SUCCESS
+        }
+    }
+    class Semaphore : TinNode {       // GPU -> GPU   // auto reset
+        var semaphore:VkSemaphore?
+        override init?(engine:Tin) {
+            super.init(engine:engine)
+            var info = VkSemaphoreCreateInfo()
+            info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO
+            if vkCreateSemaphore(engine.logicalDevice,&info,nil,&semaphore) != VK_SUCCESS {
+                return nil
+            }
+        }
+        deinit {
+            vkDestroySemaphore(engine.logicalDevice,semaphore,nil)
         }
     }
     public struct Color {
