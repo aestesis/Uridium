@@ -21,6 +21,8 @@ import Vulkan
 import Foundation
 
 public class Tin {
+    // https://community.arm.com/graphics/b/blog/posts/porting-a-graphics-engine-to-the-vulkan-api?pi10999=6
+    // https://www.khronos.org/registry/vulkan/specs/1.0-wsi_extensions/html/vkspec.html
     public class TinNode {
         let ll:LunarLayer
         let engine:Tin
@@ -400,8 +402,8 @@ public class Tin {
         var renderPass:VkRenderPass?
         var cb:CommandBuffer?
         var framebuffer:Framebuffer?
-        init?(engine:Tin, to image:Image) {
-            super.init(engine:engine)
+        public init?(to image:Image) {
+            super.init(engine:image.engine)
             var colorAttachment = VkAttachmentDescription()
             colorAttachment.format = VK_FORMAT_B8G8R8A8_UNORM
             colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT
@@ -428,16 +430,43 @@ public class Tin {
                 return nil
             }
             framebuffer = Framebuffer(renderpass:self,image:image) 
+            // TODO: bind framebuffer ???
             begin(width:image.width,height:image.height,framebuffer:framebuffer!.framebuffer!)
+        }
+        public init?(to texture:Texture) {
+            super.init(engine:texture.engine)
+            var colorAttachment = VkAttachmentDescription()
+            colorAttachment.format = VK_FORMAT_B8G8R8A8_UNORM
+            colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT
+            colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE
+            colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE
+            colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE
+            colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE
+            colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
+            colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+            var colorAttachmentRef = VkAttachmentReference()
+            colorAttachmentRef.attachment = 0;
+            colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+            var subpass = VkSubpassDescription()
+            subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS
+            subpass.colorAttachmentCount = 1
+            subpass.pColorAttachments = UnsafePointer(UnsafeMutablePointer(&colorAttachmentRef))
+            var renderPassInfo = VkRenderPassCreateInfo()
+            renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO
+            renderPassInfo.attachmentCount = 1;
+            renderPassInfo.pAttachments = UnsafePointer(UnsafeMutablePointer(&colorAttachment))
+            renderPassInfo.subpassCount = 1
+            renderPassInfo.pSubpasses = UnsafePointer(UnsafeMutablePointer(&subpass))
+            if ll.vkCreateRenderPass!(engine.logicalDevice, &renderPassInfo, nil, &renderPass) != VK_SUCCESS {
+                return nil
+            }
+            framebuffer = Framebuffer(renderpass:self,texture:texture) 
+            // TODO: bind framebuffer ???
+            begin(width:texture.width,height:texture.height,framebuffer:framebuffer!.framebuffer!)
         }
         deinit {
             // TODO: destroy render pass
             
-        }
-        public init?(engine:Tin, to texture:Texture) {
-            super.init(engine:engine)
-            // TODO:
-            NSLog("Not Implemented")
         }
         func begin(width:Int,height:Int,framebuffer:VkFramebuffer) {
             cb = CommandBuffer(engine:engine)
@@ -502,11 +531,11 @@ public class Tin {
         var vertex : VkShaderModule?
         var fragment : VkShaderModule?
         var pipeline:VkPipeline?
-        public init?(engine:Tin,vertex:[UInt8],fragment:[UInt8],format:[VertexFormat]) {
-            super.init(engine:engine)
+        public init?(renderpass:RenderPass,vertex:[UInt8],fragment:[UInt8],format:[VertexFormat]) {
+            super.init(engine:renderpass.engine)
             self.vertex = createShaderModule(code:vertex)
             self.fragment = createShaderModule(code:fragment)
-            if !self.createPipeline(format:format) {
+            if !self.createPipeline(renderpass:renderpass,format:format) {
                 // TODO: destroy shaders
                 return nil
             }
@@ -526,7 +555,7 @@ public class Tin {
             ll.vkCreateShaderModule!(engine.logicalDevice,&createInfo,nil,&shader)
             return shader
         }
-        func createPipeline(format:[VertexFormat]) -> Bool {
+        func createPipeline(renderpass:RenderPass,format:[VertexFormat]) -> Bool {
             var pipelineInfo = VkGraphicsPipelineCreateInfo()
             pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO
 
@@ -631,7 +660,6 @@ public class Tin {
             blend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO
             blend.logicOpEnable = VkBool32(VK_FALSE)
             blend.logicOp = VK_LOGIC_OP_SET                  // VkLogicOp, special blend (or,and,xor..)
-            blend.attachmentCount = 1
             var att = VkPipelineColorBlendAttachmentState()
             att.blendEnable = VkBool32(VK_FALSE)            // TODO: ennable blend
             att.srcColorBlendFactor = VK_BLEND_FACTOR_ONE   // VkBlendFactor
@@ -641,6 +669,7 @@ public class Tin {
             att.dstAlphaBlendFactor  = VK_BLEND_FACTOR_ONE
             att.alphaBlendOp = VK_BLEND_OP_MAX
             att.colorWriteMask = VK_COLOR_COMPONENT_R_BIT.rawValue | VK_COLOR_COMPONENT_G_BIT.rawValue | VK_COLOR_COMPONENT_B_BIT.rawValue | VK_COLOR_COMPONENT_A_BIT.rawValue
+            blend.attachmentCount = 1
             blend.pAttachments = withUnsafePointer(to:&att) {$0}
             blend.blendConstants.0 = 1.0 // R
             blend.blendConstants.1 = 1.0 // G
@@ -655,7 +684,10 @@ public class Tin {
             dynamic.dynamicStateCount = UInt32(dyn.count)
             dynamic.pDynamicStates = UnsafePointer(dyn)
             pipelineInfo.pDynamicState = withUnsafePointer(to:&dynamic) {$0}
-            
+            // TODO:
+            //pipelineInfo.layout
+            pipelineInfo.renderPass = renderpass.renderPass
+            pipelineInfo.subpass = 0 // TODO: ???
             return ll.vkCreateGraphicsPipelines!(engine.logicalDevice,nil,1,&pipelineInfo,nil,&pipeline) == VK_SUCCESS
         }
     }
@@ -719,7 +751,7 @@ public class Tin {
             }
         }
     }
-    class Image : TinNode {
+    public class Image : TinNode {
         var image:VkImage
         var view:VkImageView?
         var width:Int 
