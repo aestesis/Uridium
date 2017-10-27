@@ -80,7 +80,7 @@ public class Tin {
                 if fp.queueFlags & VK_QUEUE_SPARSE_BINDING_BIT.rawValue != 0 {
                     operation += "sparse "
                 }
-                NSLog("vulkan: device \(deviceName) queue \(i) \(operation)")
+                NSLog("urdidium: device \(deviceName) queue \(i) \(operation)")
             }
         }
         func enumerateMemoryProperties() {
@@ -110,23 +110,6 @@ public class Tin {
                 i += 1
             }
             return nil;
-        }
-    }
-    class Swapchain {
-        // TODO:
-    }
-    class Image {
-        var image:VkImage
-        var view:VkImageView
-        var framebuffer:VkFramebuffer
-        var width:Int 
-        var height:Int
-        init(image:VkImage,view:VkImageView,framebuffer:VkFramebuffer,width:Int,height:Int) {
-            self.image = image
-            self.view = view
-            self.framebuffer = framebuffer
-            self.width = width
-            self.height = height
         }
     }
     public class CommandBuffer {
@@ -408,6 +391,7 @@ public class Tin {
     }
     public class RenderCommandEncoder {
         public init() {
+            // TODO: ???
         }
     }
     public class RenderPass {
@@ -415,6 +399,7 @@ public class Tin {
         let engine:Tin
         var renderPass:VkRenderPass?
         var cb:CommandBuffer?
+        var framebuffer:VkFramebuffer?
         init?(engine:Tin, to image:Image) {
             self.ll = engine.ll
             self.engine = engine
@@ -443,7 +428,13 @@ public class Tin {
             if ll.vkCreateRenderPass!(engine.logicalDevice, &renderPassInfo, nil, &renderPass) != VK_SUCCESS {
                 return nil
             }
-            begin(width:image.width,height:image.height,framebuffer:image.framebuffer)
+            framebuffer = image.createFramebuffer(renderPass:self)
+            begin(width:image.width,height:image.height,framebuffer:framebuffer!)
+        }
+        deinit {
+            if framebuffer != nil {
+                ll.vkDestroyFramebuffer!(engine.logicalDevice, framebuffer, nil)
+            }
         }
         public init(engine:Tin, to texture:Texture) {
             self.ll = engine.ll
@@ -471,6 +462,11 @@ public class Tin {
             rp_begin.clearValueCount = UInt32(clear.count)
             rp_begin.pClearValues = UnsafePointer(UnsafeMutablePointer(&clear))
             ll.vkCmdBeginRenderPass!(cb!.cb, &rp_begin, VK_SUBPASS_CONTENTS_INLINE);
+        }
+        public func draw() {
+            // https://www.khronos.org/registry/vulkan/specs/1.0/html/vkspec.html#drawing
+            // TODO: vkCmdBindPipeline (Aether.Program)
+            // TODO: vkCmdDraw
         }
     }
     public class Pipeline {
@@ -523,7 +519,7 @@ public class Tin {
             createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO
             createInfo.codeSize = code.count
             if (code.count & 3) != 0 || code.count == 0 {
-                NSLog("vulkan: error spir-v code invalid")
+                NSLog("urdidium: error spir-v code invalid")
             }
             createInfo.pCode = UnsafeRawPointer(code).assumingMemoryBound(to:UInt32.self)
             var shader : VkShaderModule?
@@ -660,7 +656,9 @@ public class Tin {
             dynamic.dynamicStateCount = UInt32(dyn.count)
             dynamic.pDynamicStates = UnsafePointer(UnsafeMutablePointer(mutating:dyn))
             pipelineInfo.pDynamicState = UnsafePointer(UnsafeMutablePointer(mutating:&dynamic))
+            NSLog("urdidium: will create pipeline")
             ll.vkCreateGraphicsPipelines!(engine.logicalDevice,nil,1, &pipelineInfo,nil,&pipeline)
+            NSLog("urdidium: pipeline OK")
         }
     }
     public class Buffer {
@@ -726,6 +724,189 @@ public class Tin {
             }
         }
     }
+    class Image {
+        let ll:LunarLayer
+        let engine:Tin
+        var image:VkImage
+        var view:VkImageView?
+        var width:Int 
+        var height:Int
+        init(engine:Tin,image:VkImage,width:Int,height:Int) {
+            self.ll = engine.ll
+            self.engine = engine
+            self.image = image
+            self.width = width
+            self.height = height
+            if let cb = CommandBuffer(engine:engine) {
+                cb.setImageLayout(image:image,aspects:VK_IMAGE_ASPECT_COLOR_BIT.rawValue,oldLayout:VK_IMAGE_LAYOUT_UNDEFINED,newLayout:VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
+                cb.submit()
+            }
+            var imageCreateInfo = VkImageViewCreateInfo()
+            imageCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO
+            imageCreateInfo.pNext = nil
+            imageCreateInfo.format = VK_FORMAT_B8G8R8A8_UNORM
+            var comps = VkComponentMapping()
+            comps.r = VK_COMPONENT_SWIZZLE_R
+            comps.g = VK_COMPONENT_SWIZZLE_G
+            comps.b = VK_COMPONENT_SWIZZLE_B
+            comps.a = VK_COMPONENT_SWIZZLE_A
+            imageCreateInfo.components = comps
+            imageCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT.rawValue
+            imageCreateInfo.subresourceRange.baseMipLevel = 0
+            imageCreateInfo.subresourceRange.levelCount = 1
+            imageCreateInfo.subresourceRange.baseArrayLayer = 0
+            imageCreateInfo.subresourceRange.layerCount = 1
+            imageCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D
+            imageCreateInfo.flags = 0
+            imageCreateInfo.image = image
+            if ll.vkCreateImageView!(engine.logicalDevice, &imageCreateInfo, nil, &view) != VK_SUCCESS {
+                NSLog("urdidium: can't create image view")
+            }
+        }
+        deinit {
+            ll.vkDestroyImageView!(engine.logicalDevice, view, nil)
+        }
+        func createFramebuffer(renderPass:RenderPass) -> VkFramebuffer? {
+            var fbCreateInfo = VkFramebufferCreateInfo()
+            fbCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO
+            fbCreateInfo.attachmentCount = 1
+            fbCreateInfo.pAttachments = UnsafePointer(UnsafeMutablePointer(&view))
+            fbCreateInfo.width = UInt32(width)
+            fbCreateInfo.height = UInt32(height)
+            fbCreateInfo.layers = 1
+            var framebuffer : VkFramebuffer?
+            if ll.vkCreateFramebuffer!(engine.logicalDevice, &fbCreateInfo, nil, &framebuffer) == VK_SUCCESS {
+                return framebuffer
+            }
+            return nil
+        }
+    }
+    class Swapchain {
+        public private(set) var colorFormat : VkFormat = VK_FORMAT_B8G8R8A8_UNORM
+        let ll:LunarLayer
+        let engine:Tin
+        var swapchain:VkSwapchainKHR?
+        var images=[Image]()
+        var imageIndex:UInt32=0
+        init(engine:Tin,width:Int,height:Int) {
+            self.engine = engine
+            self.ll = self.engine.ll
+            self.createSwapchain(width: width, height: width)
+        }
+        func createSwapchain(width:Int,height:Int) {
+            var iskhr = VkBool32(VK_FALSE)
+            ll.vkGetPhysicalDeviceSurfaceSupportKHR!(engine.device!.physicalDevice,engine.queueIndex,engine.surface,&iskhr)
+            if iskhr != VK_FALSE {
+                var fcount : UInt32 = 0
+                ll.vkGetPhysicalDeviceSurfaceFormatsKHR!(engine.device!.physicalDevice,engine.surface,&fcount,nil)
+                if fcount>0 {
+                    var formats = [VkSurfaceFormatKHR](repeating:VkSurfaceFormatKHR(),count:Int(fcount))
+                    if ll.vkGetPhysicalDeviceSurfaceFormatsKHR!(engine.device!.physicalDevice,engine.surface,&fcount,&formats) == VK_SUCCESS {
+                        for f in formats {
+                            if f.format == VK_FORMAT_B8G8R8A8_UNORM {
+                                colorFormat = VK_FORMAT_B8G8R8A8_UNORM
+                                NSLog("urdidium: color BGRA")
+                                break
+                            } else if f.format == VK_FORMAT_R8G8B8A8_UNORM {
+                                colorFormat = VK_FORMAT_R8G8B8A8_UNORM
+                                NSLog("urdidium: color GRBA")
+                            }
+                        }
+                    }
+                }
+                var caps = VkSurfaceCapabilitiesKHR() 
+                if ll.vkGetPhysicalDeviceSurfaceCapabilitiesKHR!(engine.device!.physicalDevice,engine.surface,&caps) == VK_SUCCESS {
+                    var size = VkExtent2D()
+                    if caps.currentExtent.width == 0xFFFFFFFF || caps.currentExtent.height == 0xFFFFFFFF {
+                        size.width = UInt32(width)
+                        size.height = UInt32(height)
+                    } else {
+                        size = caps.currentExtent
+                    }
+                    var presentModeCount : UInt32 = 0
+                    var presentModes = [VkPresentModeKHR]()
+                    if ll.vkGetPhysicalDeviceSurfacePresentModesKHR!(engine.device!.physicalDevice,engine.surface,&presentModeCount,nil) == VK_SUCCESS && presentModeCount>0 {
+                        presentModes = [VkPresentModeKHR](repeating:VK_PRESENT_MODE_MAX_ENUM_KHR,count:Int(presentModeCount))
+                        vkGetPhysicalDeviceSurfacePresentModesKHR(engine.device!.physicalDevice,engine.surface,&presentModeCount,&presentModes)
+                    }
+                    var pmode = VK_PRESENT_MODE_IMMEDIATE_KHR
+                    for pm in presentModes {
+                        if pm == VK_PRESENT_MODE_FIFO_KHR {
+                            pmode = pm
+                            break
+                        }
+                    }
+                    var swapchainCreateInfo = VkSwapchainCreateInfoKHR()
+                    swapchainCreateInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+                    swapchainCreateInfo.surface = engine.surface
+                    swapchainCreateInfo.minImageCount = 2
+                    swapchainCreateInfo.imageFormat = colorFormat
+                    swapchainCreateInfo.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR
+                    swapchainCreateInfo.imageExtent = size
+                    swapchainCreateInfo.imageArrayLayers = 1
+                    swapchainCreateInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT.rawValue
+                    swapchainCreateInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE
+                    swapchainCreateInfo.queueFamilyIndexCount = 1
+                    var indice : UInt32 = 0
+                    swapchainCreateInfo.pQueueFamilyIndices = UnsafePointer(UnsafeMutablePointer(&indice))
+                    swapchainCreateInfo.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR
+                    swapchainCreateInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR
+                    swapchainCreateInfo.presentMode = pmode
+                    swapchainCreateInfo.oldSwapchain = swapchain
+                    if ll.vkCreateSwapchainKHR!(engine.logicalDevice, &swapchainCreateInfo, nil, &swapchain) == VK_SUCCESS {
+                        let mode = pmode == VK_PRESENT_MODE_FIFO_KHR ? "mode: fifo" : ""
+                        NSLog("urdidium: swapchain OK, \(mode)")
+                        var imageCount:UInt32 = 0
+                        if ll.vkGetSwapchainImagesKHR!(engine.logicalDevice, swapchain, &imageCount, nil) == VK_SUCCESS {
+                            var images = [VkImage?](repeating:nil,count:Int(imageCount))
+                            if ll.vkGetSwapchainImagesKHR!(engine.logicalDevice, swapchain, &imageCount, &images) == VK_SUCCESS {
+                                for image in images {
+                                    self.images.append(Image(engine:engine,image:image!,width:Int(size.width),height:Int(size.height)))
+                                }
+                                if images.count == self.images.count {
+                                    NSLog("urdidium: images OK, count: \(imageCount)")
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                NSLog("urdidium: not implemented")
+                // TODO: ???
+            }
+        }
+        func destroySwapchain() {
+            ll.vkDeviceWaitIdle!(engine.logicalDevice)
+            images.removeAll()
+            ll.vkDestroySwapchainKHR!(engine.logicalDevice,swapchain,nil)
+        }
+        func resizeSwapchain(width:Int,height:Int) {
+            destroySwapchain()
+            createSwapchain(width:width,height:height)
+        }
+        func aquire() -> Bool {
+            vkQueueWaitIdle(engine.queue)
+            imageIndex = (imageIndex + 1) & 1
+            if ll.vkAcquireNextImageKHR!(engine.logicalDevice,swapchain,100000000,nil,nil,&imageIndex) == VK_SUCCESS {
+                return true
+            }
+            return false
+        }
+        func present() -> Bool {
+            if let queue = engine.queue {
+                var presentInfo = VkPresentInfoKHR()
+                presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+                presentInfo.pNext = nil
+                presentInfo.swapchainCount = 1
+                presentInfo.pSwapchains = UnsafePointer(UnsafeMutablePointer(&swapchain))
+                presentInfo.pImageIndices = UnsafePointer(UnsafeMutablePointer(&imageIndex))
+                if ll.vkQueuePresentKHR!(queue, &presentInfo) == VK_SUCCESS {
+                    return true
+                }
+            }
+            return false
+        }
+    }
     public struct Color {
         var r:UInt32
         var g:UInt32
@@ -740,12 +921,10 @@ public class Tin {
     var devices=[Device]()
     var device:Device?
     var logicalDevice:VkDevice? 
-    var swapchain:VkSwapchainKHR?
     var commandPool:VkCommandPool?
-    var images=[Image]()
     var queue:VkQueue?
     var queueIndex:UInt32 = 0
-    var imageIndex:UInt32=0
+    var swapchain:Swapchain?
 
     init(window:Window) {
         self.window = window
@@ -757,33 +936,30 @@ public class Tin {
             createQueue()
             createCommandPool()
             createSurface()
-            createSwapchain()
+            swapchain = Swapchain(engine:self,width:window.width,height:window.height)
         }
     }
     deinit {
-        NSLog("vulkan: destroy")
+        NSLog("urdidium: destroy")
         if let device = logicalDevice {
             ll.vkDeviceWaitIdle!(device)
         }
         if instance != nil {
-            if swapchain != nil {
-                destroySwapchain()
-                swapchain = nil
-            }
-            NSLog("vulkan: swapchain destroyed")
+            swapchain = nil
+            NSLog("urdidium: swapchain destroyed")
             if logicalDevice != nil {
                 ll.vkDestroyDevice!(logicalDevice, nil)
                 logicalDevice = nil
             }
-            NSLog("vulkan: device destroyed")
+            NSLog("urdidium: device destroyed")
             if surface != nil {
                 ll.vkDestroySurfaceKHR!(instance,surface,nil)
                 surface = nil
             }
-            NSLog("vulkan: surface destroyed")
+            NSLog("urdidium: surface destroyed")
             ll.vkDestroyInstance!(instance,nil)
             instance = nil
-            NSLog("vulkan: instance destroyed")
+            NSLog("urdidium: instance destroyed")
         }
     }
 
@@ -795,52 +971,48 @@ public class Tin {
         appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO
         appInfo.apiVersion = makeVersion(1, 0, 43)
         appInfo.pNext = nil
-        appInfo.pApplicationName = UnsafePointer(strdup(app))
-        appInfo.pEngineName = UnsafePointer(strdup("uridium"))
+        appInfo.pApplicationName = UnsafePointer(app)
+        appInfo.pEngineName = UnsafePointer("uridium")
         var icInfo = VkInstanceCreateInfo()
         icInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO
         icInfo.pNext = nil
         icInfo.flags = 0
-        var ext = [ UnsafePointer(strdup(VK_KHR_SURFACE_EXTENSION_NAME)), UnsafePointer(strdup(VK_KHR_XCB_SURFACE_EXTENSION_NAME))]
-        if ll.lunar {
-            ext.append(UnsafePointer(strdup(VK_EXT_DEBUG_REPORT_EXTENSION_NAME)))
-            NSLog("vulkan: enable debug report extension")
-        } else {
-            NSLog("vulkan: enable debug report extension")
-        }
         var result : VkResult = VK_INCOMPLETE
-        ext.withUnsafeBufferPointer { pext in
-            var enabled=["VK_LAYER_VALVE_steam_overlay_64","VK_LAYER_LUNARG_standard_validation"]
-            var names = [UnsafePointer<Int8>]()
+        var names = [UnsafePointer<Int8>]()
+        if ll.lunar {
+            let enabled=["VK_LAYER_LUNARG_api_dump","VK_LAYER_LUNARG_standard_validation"]
             for l in ll.layers() {
                 if enabled.contains(l.name) {
-                    names.append(UnsafePointer(strdup(l.name))) 
-                    NSLog("vulkan: \(l.name) enabled")
+                    names.append(strdup(l.name))
+                    NSLog("urdidium: \(l.name) enabled")
                 }
             }
-            icInfo.enabledExtensionCount = UInt32(pext.count)
-            icInfo.ppEnabledExtensionNames = pext.baseAddress
-            icInfo.pApplicationInfo = UnsafePointer(UnsafeMutablePointer(&appInfo))
-            if ll.lunar {
-                icInfo.enabledLayerCount = UInt32(names.count)
-                icInfo.ppEnabledLayerNames = UnsafePointer(UnsafeMutableRawPointer(mutating:names).assumingMemoryBound(to:UnsafePointer<Int8>?.self))
-            }
-            result = ll.vkCreateInstance!(&icInfo,nil,&instance)
-            switch result {
-                case VK_ERROR_INCOMPATIBLE_DRIVER:
-                NSLog("vulkan: Incompatible driver")
-                case VK_SUCCESS:
-                NSLog("vulkan: Instance OK")
-                default:
-                NSLog("vulkan: Instance error: \(result)")
-            }
-            for n in names {
-                free(UnsafeMutableRawPointer(mutating:n))
-            }
+            icInfo.enabledLayerCount = UInt32(names.count)
+            icInfo.ppEnabledLayerNames = UnsafeRawPointer(names).assumingMemoryBound(to:UnsafePointer<Int8>?.self)
         }
-        free(UnsafeMutableRawPointer(mutating:appInfo.pApplicationName))
-        free(UnsafeMutableRawPointer(mutating:appInfo.pEngineName))
-        for e in ext {
+        var ext = [ VK_KHR_SURFACE_EXTENSION_NAME,VK_KHR_XCB_SURFACE_EXTENSION_NAME]
+        if ll.lunar {
+            ext.append(VK_EXT_DEBUG_REPORT_EXTENSION_NAME)
+            NSLog("urdidium: enable debug report extension")
+        } else {
+            NSLog("urdidium: enable debug report extension")
+        }
+        var pext = ext.map { UnsafePointer<Int8>(strdup($0)) }
+        icInfo.enabledExtensionCount = UInt32(ext.count)
+        icInfo.ppEnabledExtensionNames = UnsafeRawPointer(pext).assumingMemoryBound(to:UnsafePointer<Int8>?.self)
+        icInfo.pApplicationInfo = UnsafePointer(UnsafeMutablePointer(&appInfo))
+        result = ll.vkCreateInstance!(&icInfo,nil,&instance)
+        switch result {
+            case VK_ERROR_EXTENSION_NOT_PRESENT:
+            NSLog("urdidium: instance: extension not available")
+            case VK_ERROR_INCOMPATIBLE_DRIVER:
+            NSLog("urdidium: intance: incompatible driver")
+            case VK_SUCCESS:
+            NSLog("urdidium: Instance OK")
+            default:
+            NSLog("urdidium: Instance error: \(result)")
+        }
+        for e in pext {
             free(UnsafeMutableRawPointer(mutating:e))
         }
         return result == VK_SUCCESS
@@ -855,9 +1027,9 @@ public class Tin {
         let result = ll.vkCreateXcbSurfaceKHR!(instance, &scinfo, nil, &surface)
         switch result {
             case VK_SUCCESS:
-            NSLog("vulkan: Surface OK")
+            NSLog("urdidium: Surface OK")
             default:
-            NSLog("vulkan: Surface error: \(result)")
+            NSLog("urdidium: Surface error: \(result)")
         }
     }
     func enumerateDevices() {
@@ -867,17 +1039,17 @@ public class Tin {
             var dev = [VkPhysicalDevice?](repeating:nil, count:Int(deviceCount))
             result = ll.vkEnumeratePhysicalDevices!(instance, &deviceCount, &dev)
             if result == VK_SUCCESS {
-                NSLog("vulkan: found \(deviceCount) device")
+                NSLog("urdidium: found \(deviceCount) device")
                 for i in 0..<Int(deviceCount) {
                     var prop = VkPhysicalDeviceProperties()
                     vkGetPhysicalDeviceProperties(dev[i],&prop)
                     let p = Device(ll:ll,device: dev[i]!, properties:prop)
                     devices.append(p)
-                    NSLog("vulkan: device \(p.deviceName)")
+                    NSLog("urdidium: device \(p.deviceName)")
                 }
             }
         } else {
-            NSLog("vulkan: error \(result), no device")
+            NSLog("urdidium: error \(result), no device")
         }
     }
     func createDevice(_ idev:Int) {
@@ -896,11 +1068,19 @@ public class Tin {
         deviceInfo.flags = 0
         deviceInfo.queueCreateInfoCount = 1
         deviceInfo.pQueueCreateInfos = UnsafePointer(UnsafeMutablePointer(&queueInfo))
-        deviceInfo.enabledExtensionCount = 0
-        deviceInfo.ppEnabledExtensionNames = nil
+        // TODO: add extension 
+        var ext = [ VK_KHR_SWAPCHAIN_EXTENSION_NAME ]
+        var pext = ext.map { UnsafePointer<Int8>(strdup($0)) }
+        deviceInfo.enabledExtensionCount = UInt32(ext.count)
+        deviceInfo.ppEnabledExtensionNames = UnsafeRawPointer(pext).assumingMemoryBound(to:UnsafePointer<Int8>?.self)
         deviceInfo.pEnabledFeatures = nil;
         if ll.vkCreateDevice!(device!.physicalDevice, &deviceInfo, nil, &logicalDevice) == VK_SUCCESS {
-            NSLog("vulkan: device OK")
+            NSLog("urdidium: device OK")
+        } else {
+            NSLog("urdidium: device error")
+        }
+        for e in pext {
+            free(UnsafeMutableRawPointer(mutating:e))
         }
     }
     func createQueue() {
@@ -909,7 +1089,7 @@ public class Tin {
             if fp.queueFlags & VK_QUEUE_GRAPHICS_BIT.rawValue != 0 {
                 ll.vkGetDeviceQueue!(logicalDevice, UInt32(i), 0, &queue)
                 queueIndex = UInt32(i)
-                NSLog("vulkan: queue OK")
+                NSLog("urdidium: queue OK")
                 break
             }
             i += 1
@@ -922,139 +1102,8 @@ public class Tin {
         cmdPoolInfo.queueFamilyIndex = queueIndex
         cmdPoolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT.rawValue
         if ll.vkCreateCommandPool!(logicalDevice, &cmdPoolInfo, nil, &commandPool) == VK_SUCCESS {
-            NSLog("vulkan: Command Pool OK")
+            NSLog("urdidium: Command Pool OK")
         }
-    }
-    func createSwapchain() {
-        var caps = VkSurfaceCapabilitiesKHR()
-        if ll.vkGetPhysicalDeviceSurfaceCapabilitiesKHR!(device!.physicalDevice,surface,&caps) == VK_SUCCESS {
-            var size = VkExtent2D()
-            if caps.currentExtent.width == 0xFFFFFFFF || caps.currentExtent.height == 0xFFFFFFFF {
-                size.width = UInt32(window.width)
-                size.height = UInt32(window.height)
-            } else {
-                size = caps.currentExtent
-            }
-            var presentModeCount : UInt32 = 0
-            var presentModes = [VkPresentModeKHR]()
-            if ll.vkGetPhysicalDeviceSurfacePresentModesKHR!(device!.physicalDevice,surface,&presentModeCount,nil) == VK_SUCCESS && presentModeCount>0 {
-                presentModes = [VkPresentModeKHR](repeating:VK_PRESENT_MODE_MAX_ENUM_KHR,count:Int(presentModeCount))
-                vkGetPhysicalDeviceSurfacePresentModesKHR(device!.physicalDevice,surface,&presentModeCount,&presentModes)
-            }
-            var pmode = VK_PRESENT_MODE_IMMEDIATE_KHR
-            for pm in presentModes {
-                if pm == VK_PRESENT_MODE_FIFO_KHR {
-                    pmode = pm
-                    break
-                }
-            }
-            var swapchainCreateInfo = VkSwapchainCreateInfoKHR()
-            swapchainCreateInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-            swapchainCreateInfo.surface = surface
-            swapchainCreateInfo.minImageCount = 2
-            swapchainCreateInfo.imageFormat = VK_FORMAT_B8G8R8A8_UNORM
-            swapchainCreateInfo.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR
-            swapchainCreateInfo.imageExtent = size
-            swapchainCreateInfo.imageArrayLayers = 1
-            swapchainCreateInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT.rawValue
-            swapchainCreateInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE
-            swapchainCreateInfo.queueFamilyIndexCount = 1
-            var indice : UInt32 = 0
-            swapchainCreateInfo.pQueueFamilyIndices = UnsafePointer(UnsafeMutablePointer(&indice))
-            swapchainCreateInfo.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR
-            swapchainCreateInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR
-            swapchainCreateInfo.presentMode = pmode
-            swapchainCreateInfo.oldSwapchain = swapchain
-            if ll.vkCreateSwapchainKHR!(logicalDevice, &swapchainCreateInfo, nil, &swapchain) == VK_SUCCESS {
-                let mode = pmode == VK_PRESENT_MODE_FIFO_KHR ? "mode: fifo" : ""
-                NSLog("vulkan: swapchain OK, \(mode)")
-                var imageCount:UInt32 = 0
-                if ll.vkGetSwapchainImagesKHR!(logicalDevice, swapchain, &imageCount, nil) == VK_SUCCESS {
-                    var images = [VkImage?](repeating:nil,count:Int(imageCount))
-                    if ll.vkGetSwapchainImagesKHR!(logicalDevice, swapchain, &imageCount, &images) == VK_SUCCESS {
-                        if let cb = CommandBuffer(engine:self) {
-                            for image in images {
-                                cb.setImageLayout(image:image!,aspects:VK_IMAGE_ASPECT_COLOR_BIT.rawValue,oldLayout:VK_IMAGE_LAYOUT_UNDEFINED,newLayout:VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
-                            }
-                            cb.submit()
-                        }
-                        for image in images {
-                            var imageCreateInfo = VkImageViewCreateInfo()
-                            imageCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO
-                            imageCreateInfo.pNext = nil
-                            imageCreateInfo.format = VK_FORMAT_B8G8R8A8_UNORM
-                            var comps = VkComponentMapping()
-                            comps.r = VK_COMPONENT_SWIZZLE_R
-                            comps.g = VK_COMPONENT_SWIZZLE_G
-                            comps.b = VK_COMPONENT_SWIZZLE_B
-                            comps.a = VK_COMPONENT_SWIZZLE_A
-                            imageCreateInfo.components = comps
-                            imageCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT.rawValue
-                            imageCreateInfo.subresourceRange.baseMipLevel = 0
-                            imageCreateInfo.subresourceRange.levelCount = 1
-                            imageCreateInfo.subresourceRange.baseArrayLayer = 0
-                            imageCreateInfo.subresourceRange.layerCount = 1
-                            imageCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D
-                            imageCreateInfo.flags = 0
-                            imageCreateInfo.image = image
-                            var view:VkImageView?
-                            if ll.vkCreateImageView!(logicalDevice, &imageCreateInfo, nil, &view) == VK_SUCCESS {
-                                var fbCreateInfo = VkFramebufferCreateInfo()
-                                fbCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO
-                                fbCreateInfo.attachmentCount = 1
-                                fbCreateInfo.pAttachments = UnsafePointer(UnsafeMutablePointer(&view))
-                                fbCreateInfo.width = size.width
-                                fbCreateInfo.height = size.height
-                                fbCreateInfo.layers = 1
-                                var framebuffer : VkFramebuffer?
-                                if ll.vkCreateFramebuffer!(logicalDevice, &fbCreateInfo, nil, &framebuffer) == VK_SUCCESS {
-                                    self.images.append(Image(image:image!,view:view!,framebuffer:framebuffer!,width:Int(size.width),height:Int(size.height)))
-                                }
-                            }
-                        }
-                        if images.count == self.images.count {
-                            NSLog("vulkan: images OK, count: \(imageCount)")
-                        }
-                    }
-                }
-            }
-        }
-    }
-    func destroySwapchain() {
-        ll.vkDeviceWaitIdle!(logicalDevice)
-        for i in images {
-            ll.vkDestroyFramebuffer!(logicalDevice, i.framebuffer, nil)
-            ll.vkDestroyImageView!(logicalDevice, i.view, nil)
-            // i.image, handled by the swapchain, no destroy...
-        }
-        images.removeAll()
-        ll.vkDestroySwapchainKHR!(logicalDevice,swapchain,nil)
-    }
-    func resizeSwapchain() {
-        destroySwapchain()
-        createSwapchain()
-    }
-    func aquire() -> Bool {
-        vkQueueWaitIdle(queue)
-        imageIndex = (imageIndex + 1) & 1
-        if ll.vkAcquireNextImageKHR!(logicalDevice,swapchain,100000000,nil,nil,&imageIndex) == VK_SUCCESS {
-            return true
-        }
-        return false
-    }
-    func present() -> Bool {
-        if let queue = queue {
-            var presentInfo = VkPresentInfoKHR()
-            presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-            presentInfo.pNext = nil
-            presentInfo.swapchainCount = 1
-            presentInfo.pSwapchains = UnsafePointer(UnsafeMutablePointer(&swapchain))
-            presentInfo.pImageIndices = UnsafePointer(UnsafeMutablePointer(&imageIndex))
-            if ll.vkQueuePresentKHR!(queue, &presentInfo) == VK_SUCCESS {
-                return true
-            }
-        }
-        return false
     }
 }
 

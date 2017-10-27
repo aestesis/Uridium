@@ -86,10 +86,10 @@ open class Window {
                 }
                 free(event)
             }
-            if let engine = engine {
-                if engine.aquire() {
+            if let engine = engine, let swapchain = engine.swapchain {
+                if swapchain.aquire() {
                     render()
-                    _ = engine.present()
+                    _ = swapchain.present()
                 }
             }
             idle()

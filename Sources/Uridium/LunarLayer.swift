@@ -556,8 +556,8 @@ class LunarLayer {   // VK_LAYER_LUNARG_standard_validation
     let debugReport : PFN_vkDebugReportCallbackEXT = { flags,objectType,object,location,messageCode,layerPrefix,message,userData in
         if let message = message {
             let msg = String(cString:message)
-            NSLog("vulkan: \(msg)")
-        }
+            NSLog("-------: \(msg)")
+        }       
         return VkBool32(VK_FALSE)
     }
     var callbacks = [VkDebugReportCallbackEXT]()
@@ -565,7 +565,7 @@ class LunarLayer {   // VK_LAYER_LUNARG_standard_validation
         var callbackCreateInfo = VkDebugReportCallbackCreateInfoEXT()
         callbackCreateInfo.sType       = VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT
         callbackCreateInfo.pNext       = nil
-        callbackCreateInfo.flags       = VK_DEBUG_REPORT_ERROR_BIT_EXT.rawValue | VK_DEBUG_REPORT_WARNING_BIT_EXT.rawValue | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT.rawValue
+        callbackCreateInfo.flags       = VK_DEBUG_REPORT_ERROR_BIT_EXT.rawValue | VK_DEBUG_REPORT_WARNING_BIT_EXT.rawValue | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT.rawValue | VK_DEBUG_REPORT_INFORMATION_BIT_EXT.rawValue | VK_DEBUG_REPORT_DEBUG_BIT_EXT.rawValue
         callbackCreateInfo.pfnCallback = debugReport
         callbackCreateInfo.pUserData   = nil
         var cb : VkDebugReportCallbackEXT?
