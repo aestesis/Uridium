@@ -399,7 +399,7 @@ public class Tin {
     public class RenderPass : TinNode {
         var renderPass:VkRenderPass?
         var cb:CommandBuffer?
-        var framebuffer:VkFramebuffer?
+        var framebuffer:Framebuffer?
         init?(engine:Tin, to image:Image) {
             super.init(engine:engine)
             var colorAttachment = VkAttachmentDescription()
@@ -427,13 +427,12 @@ public class Tin {
             if ll.vkCreateRenderPass!(engine.logicalDevice, &renderPassInfo, nil, &renderPass) != VK_SUCCESS {
                 return nil
             }
-            framebuffer = image.createFramebuffer(renderPass:self)
-            begin(width:image.width,height:image.height,framebuffer:framebuffer!)
+            framebuffer = Framebuffer(renderpass:self,image:image) 
+            begin(width:image.width,height:image.height,framebuffer:framebuffer!.framebuffer!)
         }
         deinit {
-            if framebuffer != nil {
-                ll.vkDestroyFramebuffer!(engine.logicalDevice, framebuffer, nil)
-            }
+            // TODO: destroy render pass
+            
         }
         public init?(engine:Tin, to texture:Texture) {
             super.init(engine:engine)
@@ -720,19 +719,16 @@ public class Tin {
             }
         }
     }
-    class Image {
-        let ll:LunarLayer
-        let engine:Tin
+    class Image : TinNode {
         var image:VkImage
         var view:VkImageView?
         var width:Int 
         var height:Int
-        init(engine:Tin,image:VkImage,width:Int,height:Int) {
-            self.ll = engine.ll
-            self.engine = engine
+        init?(engine:Tin,image:VkImage,width:Int,height:Int) {
             self.image = image
             self.width = width
             self.height = height
+            super.init(engine:engine)
             if let cb = CommandBuffer(engine:engine) {
                 cb.setImageLayout(image:image,aspects:VK_IMAGE_ASPECT_COLOR_BIT.rawValue,oldLayout:VK_IMAGE_LAYOUT_UNDEFINED,newLayout:VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
                 cb.submit()
@@ -757,6 +753,7 @@ public class Tin {
             imageCreateInfo.image = image
             if ll.vkCreateImageView!(engine.logicalDevice, &imageCreateInfo, nil, &view) != VK_SUCCESS {
                 NSLog("urdidium: can't create image view")
+                return nil
             }
         }
         deinit {
@@ -856,7 +853,7 @@ public class Tin {
                             var images = [VkImage?](repeating:nil,count:Int(imageCount))
                             if ll.vkGetSwapchainImagesKHR!(engine.logicalDevice, swapchain, &imageCount, &images) == VK_SUCCESS {
                                 for image in images {
-                                    self.images.append(Image(engine:engine,image:image!,width:Int(size.width),height:Int(size.height)))
+                                    self.images.append(Image(engine:engine,image:image!,width:Int(size.width),height:Int(size.height))!)
                                 }
                                 if images.count == self.images.count {
                                     NSLog("urdidium: images OK, count: \(imageCount)")
@@ -904,24 +901,60 @@ public class Tin {
             return false
         }
     }
+    class Framebuffer : TinNode {
+        var framebuffer:VkFramebuffer?
+        init?(renderpass:RenderPass, image:Image) {
+            super.init(engine:image.engine)
+            var fbCreateInfo = VkFramebufferCreateInfo()
+            fbCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO
+            fbCreateInfo.attachmentCount = 1
+            fbCreateInfo.pAttachments = UnsafePointer(UnsafeMutablePointer(&image.view))
+            fbCreateInfo.width = UInt32(image.width)
+            fbCreateInfo.height = UInt32(image.height)
+            fbCreateInfo.layers = 1
+            fbCreateInfo.renderPass = renderpass.renderPass
+            var framebuffer : VkFramebuffer?
+            if ll.vkCreateFramebuffer!(engine.logicalDevice, &fbCreateInfo, nil, &framebuffer) != VK_SUCCESS {
+                return nil
+            }
+        }
+        init?(renderpass:RenderPass, texture:Texture) {
+            super.init(engine:texture.engine)
+            var fbCreateInfo = VkFramebufferCreateInfo()
+            fbCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO
+            fbCreateInfo.attachmentCount = 1
+            fbCreateInfo.pAttachments = UnsafePointer(UnsafeMutablePointer(&texture.view))
+            fbCreateInfo.width = UInt32(texture.width)
+            fbCreateInfo.height = UInt32(texture.height)
+            fbCreateInfo.layers = 1
+            fbCreateInfo.renderPass = renderpass.renderPass
+            var framebuffer : VkFramebuffer?
+            if ll.vkCreateFramebuffer!(engine.logicalDevice, &fbCreateInfo, nil, &framebuffer) != VK_SUCCESS {
+                return nil
+            }
+        }
+        deinit {
+            ll.vkDestroyFramebuffer!(engine.logicalDevice,framebuffer,nil)
+        }
+    }
     class Fence : TinNode {           // GPU -> CPU   // manual reset
         var fence:VkFence?
         override init?(engine:Tin) {
             super.init(engine:engine)
             var info = VkFenceCreateInfo()
             info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO
-            if vkCreateFence(engine.logicalDevice,&info,nil,&fence) != VK_SUCCESS {
+            if ll.vkCreateFence!(engine.logicalDevice,&info,nil,&fence) != VK_SUCCESS {
                 return nil
             }
         }
         deinit {
-            vkDestroyFence(engine.logicalDevice,fence,nil)
+            ll.vkDestroyFence!(engine.logicalDevice,fence,nil)
         }
         func reset() {
-            vkResetFences(engine.logicalDevice,1,&fence)
+            ll.vkResetFences!(engine.logicalDevice,1,&fence)
         }
         var signaled : Bool {
-            return vkGetFenceStatus(engine.logicalDevice,fence) == VK_SUCCESS
+            return ll.vkGetFenceStatus!(engine.logicalDevice,fence) == VK_SUCCESS
         }
     }
     class Semaphore : TinNode {       // GPU -> GPU   // auto reset
@@ -930,12 +963,12 @@ public class Tin {
             super.init(engine:engine)
             var info = VkSemaphoreCreateInfo()
             info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO
-            if vkCreateSemaphore(engine.logicalDevice,&info,nil,&semaphore) != VK_SUCCESS {
+            if ll.vkCreateSemaphore!(engine.logicalDevice,&info,nil,&semaphore) != VK_SUCCESS {
                 return nil
             }
         }
         deinit {
-            vkDestroySemaphore(engine.logicalDevice,semaphore,nil)
+            ll.vkDestroySemaphore!(engine.logicalDevice,semaphore,nil)
         }
     }
     public struct Color {
