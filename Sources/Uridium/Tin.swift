@@ -779,11 +779,13 @@ public class Tin {
         var swapchain:VkSwapchainKHR?
         var images=[Image]()
         var imageIndex:UInt32=0
+        var semaphore:Semaphore?
         init?(engine:Tin,width:Int,height:Int) {
             super.init(engine:engine)
             if !self.createSwapchain(width: width, height: width) {
                 return nil
             }
+            semaphore=Semaphore(engine:engine)
         }
         func createSwapchain(width:Int,height:Int) -> Bool {
             var iskhr = VkBool32(VK_FALSE)
@@ -881,7 +883,7 @@ public class Tin {
         func aquire() -> Bool {
             vkQueueWaitIdle(engine.queue)
             imageIndex = (imageIndex + 1) & 1
-            if ll.vkAcquireNextImageKHR!(engine.logicalDevice,swapchain,100000000,nil,nil,&imageIndex) == VK_SUCCESS {
+            if ll.vkAcquireNextImageKHR!(engine.logicalDevice,swapchain,100000000,semaphore?.semaphore,nil,&imageIndex) == VK_SUCCESS {
                 return true
             }
             return false
