@@ -141,15 +141,15 @@ public class Tin {
             }
         }
         public func submit() {  // submit async, for sync version look at vkCreateFence, vkQueueSubmit(,,,fence) 
-            ll.vkEndCommandBuffer!(cb)
+            _ = ll.vkEndCommandBuffer!(cb)
             var submitInfo=VkSubmitInfo()
             submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO
             submitInfo.commandBufferCount = 1
             submitInfo.pCommandBuffers = UnsafePointer(UnsafeMutablePointer(&cb))
-            ll.vkQueueSubmit!(engine.queue, 1, &submitInfo, nil)
+            _ = ll.vkQueueSubmit!(engine.queue, 1, &submitInfo, nil)
         }
         deinit {
-            ll.vkQueueWaitIdle!(engine.queue)
+            _ = ll.vkQueueWaitIdle!(engine.queue)
             ll.vkFreeCommandBuffers!(engine.logicalDevice, engine.commandPool, 1, &cb)
         }
         func setImageLayout(image:VkImage,aspects:VkImageAspectFlags,oldLayout:VkImageLayout,newLayout:VkImageLayout,srcFlags:VkPipelineStageFlags=VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT.rawValue,dstFlags:VkPipelineStageFlags=VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT.rawValue) {
@@ -399,7 +399,7 @@ public class Tin {
         }
     }
     public class RenderPass : TinNode {
-        var renderPass:VkRenderPass?
+        var renderpass:VkRenderPass?
         var cb:CommandBuffer?
         var framebuffer:Framebuffer?
         public init?(to image:Image) {
@@ -426,7 +426,7 @@ public class Tin {
             renderPassInfo.pAttachments = UnsafePointer(UnsafeMutablePointer(&colorAttachment))
             renderPassInfo.subpassCount = 1
             renderPassInfo.pSubpasses = UnsafePointer(UnsafeMutablePointer(&subpass))
-            if ll.vkCreateRenderPass!(engine.logicalDevice, &renderPassInfo, nil, &renderPass) != VK_SUCCESS {
+            if ll.vkCreateRenderPass!(engine.logicalDevice, &renderPassInfo, nil, &renderpass) != VK_SUCCESS {
                 return nil
             }
             framebuffer = Framebuffer(renderpass:self,image:image) 
@@ -457,7 +457,7 @@ public class Tin {
             renderPassInfo.pAttachments = UnsafePointer(UnsafeMutablePointer(&colorAttachment))
             renderPassInfo.subpassCount = 1
             renderPassInfo.pSubpasses = UnsafePointer(UnsafeMutablePointer(&subpass))
-            if ll.vkCreateRenderPass!(engine.logicalDevice, &renderPassInfo, nil, &renderPass) != VK_SUCCESS {
+            if ll.vkCreateRenderPass!(engine.logicalDevice, &renderPassInfo, nil, &renderpass) != VK_SUCCESS {
                 return nil
             }
             framebuffer = Framebuffer(renderpass:self,texture:texture) 
@@ -465,15 +465,16 @@ public class Tin {
             begin(width:texture.width,height:texture.height,framebuffer:framebuffer!.framebuffer!)
         }
         deinit {
-            // TODO: destroy render pass
-            
+            if renderpass != nil {
+                ll.vkDestroyRenderPass!(engine.logicalDevice,renderpass,nil)
+            }
         }
         func begin(width:Int,height:Int,framebuffer:VkFramebuffer) {
             cb = CommandBuffer(engine:engine)
             var rp_begin = VkRenderPassBeginInfo()
             rp_begin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO
             rp_begin.pNext = nil
-            rp_begin.renderPass = renderPass
+            rp_begin.renderPass = renderpass
             rp_begin.framebuffer = framebuffer
             rp_begin.renderArea.offset.x = 0
             rp_begin.renderArea.offset.y = 0
@@ -493,6 +494,26 @@ public class Tin {
             // https://www.khronos.org/registry/vulkan/specs/1.0/html/vkspec.html#drawing
             // TODO: vkCmdBindPipeline (Aether.Program)
             // TODO: vkCmdDraw
+            // TODO: draw in pipeline ??
+        }
+    }
+    public class Shader : TinNode {
+        var shader : VkShaderModule?
+        public init?(engine:Tin,code:[UInt8]) {
+            super.init(engine:engine)
+            var createInfo = VkShaderModuleCreateInfo()
+            createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO
+            createInfo.codeSize = code.count
+            if (code.count & 3) != 0 || code.count == 0 {
+                NSLog("urdidium: error spir-v code invalid")
+            }
+            createInfo.pCode = UnsafeRawPointer(code).assumingMemoryBound(to:UInt32.self)
+            if ll.vkCreateShaderModule!(engine.logicalDevice,&createInfo,nil,&shader) != VK_SUCCESS {
+                return nil
+            }
+        }
+        deinit {
+            ll.vkDestroyShaderModule!(engine.logicalDevice,shader,nil)
         }
     }
     public class Pipeline : TinNode {
@@ -528,14 +549,14 @@ public class Tin {
                 }
             }
         }
-        var vertex : VkShaderModule?
-        var fragment : VkShaderModule?
+        var vertex : Shader
+        var fragment : Shader
         var pipeline:VkPipeline?
-        public init?(renderpass:RenderPass,vertex:[UInt8],fragment:[UInt8],format:[VertexFormat]) {
+        public init?(renderpass:RenderPass,vertex:Shader,fragment:Shader,states:Pipeline.States) {
+            self.vertex = vertex
+            self.fragment = fragment
             super.init(engine:renderpass.engine)
-            self.vertex = createShaderModule(code:vertex)
-            self.fragment = createShaderModule(code:fragment)
-            if !self.createPipeline(renderpass:renderpass,format:format) {
+            if !self.createPipeline(renderpass:renderpass,states:states) {
                 // TODO: destroy shaders
                 return nil
             }
@@ -543,19 +564,47 @@ public class Tin {
         deinit {
             // TODO: destroy pipeline
         }
-        func createShaderModule(code:[UInt8]) -> VkShaderModule? {
-            var createInfo = VkShaderModuleCreateInfo()
-            createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO
-            createInfo.codeSize = code.count
-            if (code.count & 3) != 0 || code.count == 0 {
-                NSLog("urdidium: error spir-v code invalid")
+        public struct States {
+            public enum Primitive {
+                // https://vulkan.lunarg.com/doc/view/1.0.33.0/linux/vkspec.chunked/ch19s01.html
+                case point
+                case line
+                case lineStrip
+                case triangle
+                case triangleStrip
+                case triangleFan
+                case patch
+                var topology : VkPrimitiveTopology {
+                    switch self {
+                        case .point:
+                        return VK_PRIMITIVE_TOPOLOGY_POINT_LIST
+                        case .line:
+                        return VK_PRIMITIVE_TOPOLOGY_LINE_LIST
+                        case .lineStrip:
+                        return VK_PRIMITIVE_TOPOLOGY_LINE_STRIP
+                        case .triangle:
+                        return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST
+                        case .triangleStrip:
+                        return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP
+                        case .triangleFan:
+                        return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN
+                        case .patch:
+                        return VK_PRIMITIVE_TOPOLOGY_PATCH_LIST
+                    }
+                }
             }
-            createInfo.pCode = UnsafeRawPointer(code).assumingMemoryBound(to:UInt32.self)
-            var shader : VkShaderModule?
-            ll.vkCreateShaderModule!(engine.logicalDevice,&createInfo,nil,&shader)
-            return shader
+            public var viewport:Box
+            public var scisor:Rect
+            public var primitive:Primitive
+            public var vertexFormat:[VertexFormat]
+            public init() {
+                primitive = .triangle
+                vertexFormat = [VertexFormat]()
+                viewport = Box.zero
+                scisor = Rect.zero
+            }
         }
-        func createPipeline(renderpass:RenderPass,format:[VertexFormat]) -> Bool {
+        func createPipeline(renderpass:RenderPass,states:States) -> Bool {
             var pipelineInfo = VkGraphicsPipelineCreateInfo()
             pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO
 
@@ -564,13 +613,13 @@ public class Tin {
             infoVertex.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO
             infoVertex.stage = VK_SHADER_STAGE_VERTEX_BIT
             infoVertex.pName = UnsafeRawPointer("vertex").assumingMemoryBound(to:Int8.self)
-            infoVertex.module = self.vertex
+            infoVertex.module = self.vertex.shader
             stages.append(infoVertex)
             var infoFragment = VkPipelineShaderStageCreateInfo()
             infoFragment.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO
             infoFragment.stage = VK_SHADER_STAGE_FRAGMENT_BIT
             infoFragment.pName = UnsafeRawPointer("fragment").assumingMemoryBound(to:Int8.self)
-            infoFragment.module = self.fragment
+            infoFragment.module = self.fragment.shader
             stages.append(infoFragment)
             pipelineInfo.stageCount = UInt32(stages.count)
             pipelineInfo.pStages = UnsafePointer(stages)
@@ -580,7 +629,7 @@ public class Tin {
             var attributes = [VkVertexInputAttributeDescription]()
             var size = 0
             var n = 0
-            for vf in format {
+            for vf in states.vertexFormat {
                 var d = VkVertexInputAttributeDescription()
                 d.location = UInt32(n)
                 d.offset = UInt32(size)
@@ -601,7 +650,7 @@ public class Tin {
 
             var assembly = VkPipelineInputAssemblyStateCreateInfo()
             assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO
-            assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST // VkPrimitiveTopology
+            assembly.topology = states.primitive.topology
             assembly.primitiveRestartEnable = VkBool32(VK_FALSE)
             pipelineInfo.pInputAssemblyState = withUnsafePointer(to:&assembly) {$0}
 
@@ -609,12 +658,12 @@ public class Tin {
             viewports.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO
             var vps = [VkViewport]()
             var vp = VkViewport()  
-            vp.x = -1
-            vp.y = 1
-            vp.width = 2
-            vp.height = 2
-            vp.minDepth = 0
-            vp.maxDepth = 1
+            vp.x = states.viewport.x
+            vp.y = states.viewport.y
+            vp.width = states.viewport.width
+            vp.height = states.viewport.height
+            vp.minDepth = states.viewport.z
+            vp.maxDepth = states.viewport.z + states.viewport.depth
             vps.append(vp)
             viewports.viewportCount = UInt32(vps.count)
             viewports.pViewports = UnsafePointer(vps)
@@ -686,7 +735,7 @@ public class Tin {
             pipelineInfo.pDynamicState = withUnsafePointer(to:&dynamic) {$0}
             // TODO:
             //pipelineInfo.layout
-            pipelineInfo.renderPass = renderpass.renderPass
+            pipelineInfo.renderPass = renderpass.renderpass
             pipelineInfo.subpass = 0 // TODO: ???
             return ll.vkCreateGraphicsPipelines!(engine.logicalDevice,nil,1,&pipelineInfo,nil,&pipeline) == VK_SUCCESS
         }
@@ -731,7 +780,7 @@ public class Tin {
             if ll.vkAllocateMemory!(engine.logicalDevice, &allocInfo, nil, &memory) != VK_SUCCESS {
                 return nil
             }
-            ll.vkBindBufferMemory!(engine.logicalDevice, buffer, memory, 0);            
+            _ = ll.vkBindBufferMemory!(engine.logicalDevice, buffer, memory, 0);            
         }
         deinit {
             if memory != nil {
@@ -821,11 +870,11 @@ public class Tin {
         }
         func createSwapchain(width:Int,height:Int) -> Bool {
             var iskhr = VkBool32(VK_FALSE)
-            ll.vkGetPhysicalDeviceSurfaceSupportKHR!(engine.device!.physicalDevice,engine.queueIndex,engine.surface,&iskhr)
+            _ = ll.vkGetPhysicalDeviceSurfaceSupportKHR!(engine.device!.physicalDevice,engine.queueIndex,engine.surface,&iskhr)
             if iskhr != VK_FALSE {
                 var fcount : UInt32 = 0
-                ll.vkGetPhysicalDeviceSurfaceFormatsKHR!(engine.device!.physicalDevice,engine.surface,&fcount,nil)
-                if fcount>0 {
+                let ret = ll.vkGetPhysicalDeviceSurfaceFormatsKHR!(engine.device!.physicalDevice,engine.surface,&fcount,nil)
+                if ret == VK_SUCCESS && fcount>0 {
                     var formats = [VkSurfaceFormatKHR](repeating:VkSurfaceFormatKHR(),count:Int(fcount))
                     if ll.vkGetPhysicalDeviceSurfaceFormatsKHR!(engine.device!.physicalDevice,engine.surface,&fcount,&formats) == VK_SUCCESS {
                         for f in formats {
@@ -904,13 +953,13 @@ public class Tin {
             return false
         }
         func destroySwapchain() {
-            ll.vkDeviceWaitIdle!(engine.logicalDevice)
+            _ = ll.vkDeviceWaitIdle!(engine.logicalDevice)
             images.removeAll()
             ll.vkDestroySwapchainKHR!(engine.logicalDevice,swapchain,nil)
         }
         func resizeSwapchain(width:Int,height:Int) {
             destroySwapchain()
-            createSwapchain(width:width,height:height)
+            _ = createSwapchain(width:width,height:height)
         }
         func aquire() -> Bool {
             vkQueueWaitIdle(engine.queue)
@@ -946,7 +995,7 @@ public class Tin {
             fbCreateInfo.width = UInt32(image.width)
             fbCreateInfo.height = UInt32(image.height)
             fbCreateInfo.layers = 1
-            fbCreateInfo.renderPass = renderpass.renderPass
+            fbCreateInfo.renderPass = renderpass.renderpass
             var framebuffer : VkFramebuffer?
             if ll.vkCreateFramebuffer!(engine.logicalDevice, &fbCreateInfo, nil, &framebuffer) != VK_SUCCESS {
                 return nil
@@ -961,7 +1010,7 @@ public class Tin {
             fbCreateInfo.width = UInt32(texture.width)
             fbCreateInfo.height = UInt32(texture.height)
             fbCreateInfo.layers = 1
-            fbCreateInfo.renderPass = renderpass.renderPass
+            fbCreateInfo.renderPass = renderpass.renderpass
             var framebuffer : VkFramebuffer?
             if ll.vkCreateFramebuffer!(engine.logicalDevice, &fbCreateInfo, nil, &framebuffer) != VK_SUCCESS {
                 return nil
@@ -985,7 +1034,7 @@ public class Tin {
             ll.vkDestroyFence!(engine.logicalDevice,fence,nil)
         }
         func reset() {
-            ll.vkResetFences!(engine.logicalDevice,1,&fence)
+            _ = ll.vkResetFences!(engine.logicalDevice,1,&fence)
         }
         var signaled : Bool {
             return ll.vkGetFenceStatus!(engine.logicalDevice,fence) == VK_SUCCESS
@@ -1006,10 +1055,30 @@ public class Tin {
         }
     }
     public struct Color {
-        var r:UInt32
-        var g:UInt32
-        var b:UInt32
-        var a:UInt32
+        public var r:UInt32
+        public var g:UInt32
+        public var b:UInt32
+        public var a:UInt32
+    }
+    public struct Rect {
+        public var x : Float
+        public var y : Float
+        public var width : Float
+        public var height : Float
+        public static var zero : Rect {
+            return Rect(x:0,y:0,width:0,height:0)            
+        }
+    }
+    public struct Box {
+        public var x : Float
+        public var y : Float
+        public var z : Float
+        public var width : Float
+        public var height : Float
+        public var depth : Float
+        public static var zero : Box {
+            return Box(x:0,y:0,z:0,width:0,height:0,depth:0)            
+        }
     }
 
     var window:Window
@@ -1040,7 +1109,7 @@ public class Tin {
     deinit {
         NSLog("urdidium: destroy")
         if let device = logicalDevice {
-            ll.vkDeviceWaitIdle!(device)
+            _ = ll.vkDeviceWaitIdle!(device)
         }
         if instance != nil {
             swapchain = nil
@@ -1095,7 +1164,7 @@ public class Tin {
         } else {
             NSLog("urdidium: enable debug report extension")
         }
-        var pext = ext.map { UnsafePointer<Int8>(strdup($0)) }
+        let pext = ext.map { UnsafePointer<Int8>(strdup($0)) }
         icInfo.enabledExtensionCount = UInt32(ext.count)
         icInfo.ppEnabledExtensionNames = UnsafeRawPointer(pext).assumingMemoryBound(to:UnsafePointer<Int8>?.self)
         icInfo.pApplicationInfo = UnsafePointer(UnsafeMutablePointer(&appInfo))
@@ -1167,8 +1236,8 @@ public class Tin {
         deviceInfo.queueCreateInfoCount = 1
         deviceInfo.pQueueCreateInfos = UnsafePointer(UnsafeMutablePointer(&queueInfo))
         // TODO: add extension 
-        var ext = [ VK_KHR_SWAPCHAIN_EXTENSION_NAME ]
-        var pext = ext.map { UnsafePointer<Int8>(strdup($0)) }
+        let ext = [ VK_KHR_SWAPCHAIN_EXTENSION_NAME ]
+        let pext = ext.map { UnsafePointer<Int8>(strdup($0)) }
         deviceInfo.enabledExtensionCount = UInt32(ext.count)
         deviceInfo.ppEnabledExtensionNames = UnsafeRawPointer(pext).assumingMemoryBound(to:UnsafePointer<Int8>?.self)
         deviceInfo.pEnabledFeatures = nil;
