@@ -393,11 +393,6 @@ public class Tin {
             }
         }
     }
-    public class RenderCommandEncoder {
-        public init() {
-            // TODO: ???
-        }
-    }
     public class RenderPass : TinNode {
         var renderpass:VkRenderPass?
         var cb:CommandBuffer?
@@ -574,7 +569,7 @@ public class Tin {
                 case triangleStrip
                 case triangleFan
                 case patch
-                var topology : VkPrimitiveTopology {
+                var system : VkPrimitiveTopology {
                     switch self {
                         case .point:
                         return VK_PRIMITIVE_TOPOLOGY_POINT_LIST
@@ -593,16 +588,176 @@ public class Tin {
                     }
                 }
             }
+            public enum CullMode {
+                // https://www.khronos.org/registry/vulkan/specs/1.0/man/html/VkCullModeFlagBits.html
+                case none
+                case front
+                case back
+                case all
+                var system : VkCullModeFlags {
+                    switch self {
+                        case .none:
+                        return VK_CULL_MODE_NONE.rawValue
+                        case .front:
+                        return VK_CULL_MODE_FRONT_BIT.rawValue
+                        case .back:
+                        return VK_CULL_MODE_BACK_BIT.rawValue
+                        case .all:
+                        return VK_CULL_MODE_FRONT_AND_BACK.rawValue
+                    }
+                }
+            }
+            public enum DepthTest {
+                case never
+                case always
+                case equal
+                case notEqual
+                case less
+                case lessOrEqual
+                case greater
+                case greaterOrEqual
+                var system : VkCompareOp {
+                    switch self {
+                        case .never:
+                        return VK_COMPARE_OP_NEVER
+                        case .always:
+                        return VK_COMPARE_OP_ALWAYS
+                        case .equal:
+                        return VK_COMPARE_OP_EQUAL
+                        case .notEqual:
+                        return VK_COMPARE_OP_NOT_EQUAL
+                        case .less:
+                        return VK_COMPARE_OP_LESS
+                        case .lessOrEqual:
+                        return VK_COMPARE_OP_LESS_OR_EQUAL
+                        case .greater:
+                        return VK_COMPARE_OP_GREATER
+                        case .greaterOrEqual:
+                        return VK_COMPARE_OP_GREATER_OR_EQUAL
+                    }
+                }
+            }
+            public struct Blend {
+                public enum Op {
+                    case add
+                    case substract
+                    case reverseSubstract
+                    case min
+                    case max
+                    var system : VkBlendOp {
+                        switch self {
+                            case .add:
+                            return VK_BLEND_OP_ADD
+                            case .substract:
+                            return VK_BLEND_OP_SUBTRACT
+                            case .reverseSubstract:
+                            return VK_BLEND_OP_REVERSE_SUBTRACT
+                            case .min:
+                            return VK_BLEND_OP_MIN
+                            case .max:
+                            return VK_BLEND_OP_MAX
+                        }
+                    }
+                }
+                public enum Factor { 
+                    case zero
+                    case one
+                    case srcColor
+                    case oneMinusSrcColor
+                    case dstColor
+                    case oneMinusDstColor
+                    case srcAlpha
+                    case oneMinusSrcAlpha
+                    case dstAlpha
+                    case oneMinusDstAlpha
+                    case constantColor
+                    case oneMinusConstantColor
+                    case constantAlpha
+                    case oneMinusConstantAlpha
+                    var system : VkBlendFactor {
+                        switch self {
+                            case .zero:
+                            return VK_BLEND_FACTOR_ZERO
+                            case .one:
+                            return VK_BLEND_FACTOR_ONE
+                            case .srcColor:
+                            return VK_BLEND_FACTOR_SRC_COLOR
+                            case .oneMinusSrcColor:
+                            return VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR
+                            case .dstColor:
+                            return VK_BLEND_FACTOR_DST_COLOR
+                            case .oneMinusDstColor:
+                            return VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR
+                            case .srcAlpha:
+                            return VK_BLEND_FACTOR_SRC_ALPHA
+                            case .oneMinusSrcAlpha:
+                            return VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA
+                            case .dstAlpha:
+                            return VK_BLEND_FACTOR_DST_ALPHA
+                            case .oneMinusDstAlpha:
+                            return VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA
+                            case .constantColor:
+                            return VK_BLEND_FACTOR_CONSTANT_COLOR
+                            case .oneMinusConstantColor:
+                            return VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR
+                            case .constantAlpha:
+                            return VK_BLEND_FACTOR_CONSTANT_ALPHA
+                            case .oneMinusConstantAlpha:
+                            return VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_ALPHA
+                        }
+                    }
+                }
+                public var enable : Bool
+                public var srcColor : Factor
+                public var dstColor : Factor
+                public var colorOp : Op
+                public var srcAlpha : Factor
+                public var dstAlpha : Factor
+                public var alphaOp : Op
+                public init(enable:Bool,srcColor:Factor=Factor.one,dstColor:Factor=Factor.zero,colorOp:Op=Op.add,srcAlpha:Factor=Factor.one,dstAlpha:Factor=Factor.one,alphaOp:Op=Op.max) {
+                    self.enable = enable
+                    self.srcColor = srcColor
+                    self.dstColor = dstColor
+                    self.colorOp = colorOp
+                    self.srcAlpha = srcAlpha
+                    self.dstAlpha = dstAlpha
+                    self.alphaOp = alphaOp
+                }
+            }
             public var viewport:Box
             public var scisor:Rect
             public var primitive:Primitive
             public var vertexFormat:[VertexFormat]
+            public var discard:CullMode
+            public var depth:DepthTest
+            public var blend:Blend
             public init() {
                 primitive = .triangle
                 vertexFormat = [VertexFormat]()
                 viewport = Box.zero
                 scisor = Rect.zero
+                discard = .none
+                depth = .never
+                blend = Blend(enable:false)
             }
+        }
+        func createLayout() {
+            // TODO: 
+            var layout = VkPipelineLayoutCreateInfo()
+            layout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO
+            var descsl = [VkDescriptorSetLayout?]()
+
+            var di = VkDescriptorSetLayoutCreateInfo()
+            // TODO: https://www.khronos.org/registry/vulkan/specs/1.0/man/html/VkDescriptorSetLayoutCreateInfo.html
+            var sl : VkDescriptorSetLayout?
+            vkCreateDescriptorSetLayout(engine.logicalDevice,&di,nil,&sl)
+            descsl.append(sl)
+
+            layout.setLayoutCount = UInt32(descsl.count)
+            layout.pSetLayouts = UnsafePointer(descsl)
+            var playout : VkPipelineLayout?
+            vkCreatePipelineLayout(engine.logicalDevice,&layout,nil,&playout)
+
         }
         func createPipeline(renderpass:RenderPass,states:States) -> Bool {
             var pipelineInfo = VkGraphicsPipelineCreateInfo()
@@ -650,7 +805,7 @@ public class Tin {
 
             var assembly = VkPipelineInputAssemblyStateCreateInfo()
             assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO
-            assembly.topology = states.primitive.topology
+            assembly.topology = states.primitive.system
             assembly.primitiveRestartEnable = VkBool32(VK_FALSE)
             pipelineInfo.pInputAssemblyState = withUnsafePointer(to:&assembly) {$0}
 
@@ -674,7 +829,7 @@ public class Tin {
             rasterization.depthClampEnable = VkBool32(VK_TRUE)
             rasterization.rasterizerDiscardEnable = VkBool32(VK_TRUE)
             rasterization.polygonMode = VK_POLYGON_MODE_FILL         // VkPolygonMode
-            rasterization.cullMode = VK_CULL_MODE_BACK_BIT.rawValue  // VkCullModeFlagBits
+            rasterization.cullMode = states.discard.system
             rasterization.frontFace = VK_FRONT_FACE_CLOCKWISE        // VkFrontFace
             rasterization.depthBiasEnable = VkBool32(VK_FALSE)
             rasterization.lineWidth = 1
@@ -695,7 +850,7 @@ public class Tin {
             depthstencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO
             depthstencil.depthTestEnable = VkBool32(VK_FALSE)   // TODO: enable depth test
             depthstencil.depthWriteEnable = VkBool32(VK_FALSE)
-            depthstencil.depthCompareOp = VK_COMPARE_OP_LESS
+            depthstencil.depthCompareOp = states.depth.system
             depthstencil.depthBoundsTestEnable = VkBool32(VK_FALSE)
             depthstencil.stencilTestEnable = VkBool32(VK_FALSE)
             // depthstencil.front =
@@ -710,13 +865,13 @@ public class Tin {
             blend.logicOpEnable = VkBool32(VK_FALSE)
             blend.logicOp = VK_LOGIC_OP_SET                  // VkLogicOp, special blend (or,and,xor..)
             var att = VkPipelineColorBlendAttachmentState()
-            att.blendEnable = VkBool32(VK_FALSE)            // TODO: ennable blend
-            att.srcColorBlendFactor = VK_BLEND_FACTOR_ONE   // VkBlendFactor
-            att.dstColorBlendFactor = VK_BLEND_FACTOR_ONE
-            att.colorBlendOp = VK_BLEND_OP_ADD
-            att.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE
-            att.dstAlphaBlendFactor  = VK_BLEND_FACTOR_ONE
-            att.alphaBlendOp = VK_BLEND_OP_MAX
+            att.blendEnable = VkBool32(states.blend.enable ? VK_TRUE : VK_FALSE)
+            att.srcColorBlendFactor = states.blend.srcColor.system
+            att.dstColorBlendFactor = states.blend.dstColor.system
+            att.colorBlendOp = states.blend.colorOp.system
+            att.srcAlphaBlendFactor = states.blend.srcAlpha.system
+            att.dstAlphaBlendFactor  = states.blend.dstAlpha.system
+            att.alphaBlendOp = states.blend.alphaOp.system
             att.colorWriteMask = VK_COLOR_COMPONENT_R_BIT.rawValue | VK_COLOR_COMPONENT_G_BIT.rawValue | VK_COLOR_COMPONENT_B_BIT.rawValue | VK_COLOR_COMPONENT_A_BIT.rawValue
             blend.attachmentCount = 1
             blend.pAttachments = withUnsafePointer(to:&att) {$0}
@@ -726,6 +881,12 @@ public class Tin {
             blend.blendConstants.3 = 1.0 // A
             pipelineInfo.pColorBlendState = withUnsafePointer(to:&blend) {$0}
             
+
+
+
+
+
+
             var dynamic = VkPipelineDynamicStateCreateInfo()
             dynamic.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO
             var dyn = [VkDynamicState]()
@@ -1095,7 +1256,7 @@ public class Tin {
 
     init(window:Window) {
         self.window = window
-        self.ll = LunarLayer()
+        self.ll = LunarLayer(debug:true)
         if createInstance(app:window.title) {
             ll.instantiate(instance!)
             enumerateDevices()
@@ -1136,10 +1297,10 @@ public class Tin {
     func createInstance(app:String) -> Bool {
         var appInfo = VkApplicationInfo()
         appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO
-        appInfo.apiVersion = makeVersion(1, 0, 43)
+        appInfo.apiVersion = makeVersion(1, 0, 61)
         appInfo.pNext = nil
-        appInfo.pApplicationName = UnsafePointer(app)
-        appInfo.pEngineName = UnsafePointer("uridium")
+        appInfo.pApplicationName = UnsafePointer(strdup(app))
+        appInfo.pEngineName = UnsafePointer(strdup("uridium"))
         var icInfo = VkInstanceCreateInfo()
         icInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO
         icInfo.pNext = nil
@@ -1157,7 +1318,7 @@ public class Tin {
             icInfo.enabledLayerCount = UInt32(names.count)
             icInfo.ppEnabledLayerNames = UnsafeRawPointer(names).assumingMemoryBound(to:UnsafePointer<Int8>?.self)
         }
-        var ext = [ VK_KHR_SURFACE_EXTENSION_NAME,VK_KHR_XCB_SURFACE_EXTENSION_NAME]
+        var ext = [ VK_KHR_SURFACE_EXTENSION_NAME,VK_KHR_XCB_SURFACE_EXTENSION_NAME] //
         if ll.lunar {
             ext.append(VK_EXT_DEBUG_REPORT_EXTENSION_NAME)
             NSLog("urdidium: enable debug report extension")
@@ -1182,6 +1343,8 @@ public class Tin {
         for e in pext {
             free(UnsafeMutableRawPointer(mutating:e))
         }
+        free(UnsafeMutableRawPointer(mutating:appInfo.pApplicationName))
+        free(UnsafeMutableRawPointer(mutating:appInfo.pEngineName))
         return result == VK_SUCCESS
     }
     func createSurface() {

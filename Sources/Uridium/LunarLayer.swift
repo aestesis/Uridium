@@ -185,8 +185,10 @@ class LunarLayer {   // VK_LAYER_LUNARG_standard_validation
     // XCB
     var vkCreateXcbSurfaceKHR:PFN_vkCreateXcbSurfaceKHR?
 
-    init() {  
-        h = dlopen("libvulkan.so",RTLD_LAZY)
+    init(debug:Bool=true) {  
+        if debug {
+            h = dlopen("libvulkan.so",RTLD_LAZY)
+        }
         if let h = h {
             NSLog("vulkan: lunar OK")
             vkGetInstanceProcAddr = unsafeBitCast(dlsym(h, "vkGetInstanceProcAddr"), to:PFN_vkGetInstanceProcAddr.self)
