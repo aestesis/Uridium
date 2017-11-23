@@ -889,10 +889,10 @@ public class Tin {
 
             var dynamic = VkPipelineDynamicStateCreateInfo()
             dynamic.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO
-            var dyn = [VkDynamicState]()
-            // dyn.append(VK_DYNAMIC_STATE_SCISSOR)
-            dynamic.dynamicStateCount = UInt32(dyn.count)
-            dynamic.pDynamicStates = UnsafePointer(dyn)
+            //var dyn = [VkDynamicState]()
+            //dyn.append(VK_DYNAMIC_STATE_SCISSOR)
+            //dynamic.dynamicStateCount = UInt32(dyn.count)
+            //dynamic.pDynamicStates = UnsafePointer(dyn)
             pipelineInfo.pDynamicState = withUnsafePointer(to:&dynamic) {$0}
             // TODO:
             //pipelineInfo.layout
