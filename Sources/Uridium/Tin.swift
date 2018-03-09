@@ -23,6 +23,7 @@ import Foundation
 public class Tin {
     // https://community.arm.com/graphics/b/blog/posts/porting-a-graphics-engine-to-the-vulkan-api?pi10999=6
     // https://www.khronos.org/registry/vulkan/specs/1.0-wsi_extensions/html/vkspec.html
+    // TODO: Android https://github.com/ARM-software/vulkan-sdk
     public class TinNode {
         let ll:LunarLayer
         let engine:Tin
@@ -397,7 +398,7 @@ public class Tin {
         var renderpass:VkRenderPass?
         var cb:CommandBuffer?
         var framebuffer:Framebuffer?
-        public init?(to image:Image) {
+        public init?(to image:Image) {  // TODO: add clear color
             super.init(engine:image.engine)
             var colorAttachment = VkAttachmentDescription()
             colorAttachment.format = VK_FORMAT_B8G8R8A8_UNORM
@@ -426,9 +427,9 @@ public class Tin {
             }
             framebuffer = Framebuffer(renderpass:self,image:image) 
             // TODO: bind framebuffer ???
-            begin(width:image.width,height:image.height,framebuffer:framebuffer!.framebuffer!)
+            begin(width:image.width,height:image.height,framebuffer:framebuffer!.framebuffer)
         }
-        public init?(to texture:Texture) {
+        public init?(to texture:Texture) {  // TODO: add clear color
             super.init(engine:texture.engine)
             var colorAttachment = VkAttachmentDescription()
             colorAttachment.format = VK_FORMAT_B8G8R8A8_UNORM
@@ -457,14 +458,14 @@ public class Tin {
             }
             framebuffer = Framebuffer(renderpass:self,texture:texture) 
             // TODO: bind framebuffer ???
-            begin(width:texture.width,height:texture.height,framebuffer:framebuffer!.framebuffer!)
+            begin(width:texture.width,height:texture.height,framebuffer:framebuffer!.framebuffer)
         }
         deinit {
             if renderpass != nil {
                 ll.vkDestroyRenderPass!(engine.logicalDevice,renderpass,nil)
             }
         }
-        func begin(width:Int,height:Int,framebuffer:VkFramebuffer) {
+        func begin(width:Int,height:Int,framebuffer:VkFramebuffer?) {
             cb = CommandBuffer(engine:engine)
             var rp_begin = VkRenderPassBeginInfo()
             rp_begin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO
@@ -485,11 +486,8 @@ public class Tin {
             rp_begin.pClearValues = UnsafePointer(UnsafeMutablePointer(&clear))
             ll.vkCmdBeginRenderPass!(cb!.cb, &rp_begin, VK_SUBPASS_CONTENTS_INLINE);
         }
-        public func draw() {
-            // https://www.khronos.org/registry/vulkan/specs/1.0/html/vkspec.html#drawing
-            // TODO: vkCmdBindPipeline (Aether.Program)
-            // TODO: vkCmdDraw
-            // TODO: draw in pipeline ??
+        func end() {
+            ll.vkCmdEndRenderPass!(cb!.cb)
         }
     }
     public class Shader : TinNode {
@@ -543,21 +541,6 @@ public class Tin {
                     return VK_FORMAT_R32G32B32A32_SFLOAT
                 }
             }
-        }
-        var vertex : Shader
-        var fragment : Shader
-        var pipeline:VkPipeline?
-        public init?(renderpass:RenderPass,vertex:Shader,fragment:Shader,states:Pipeline.States) {
-            self.vertex = vertex
-            self.fragment = fragment
-            super.init(engine:renderpass.engine)
-            if !self.createPipeline(renderpass:renderpass,states:states) {
-                // TODO: destroy shaders
-                return nil
-            }
-        }
-        deinit {
-            // TODO: destroy pipeline
         }
         public struct States {
             public enum Primitive {
@@ -730,6 +713,7 @@ public class Tin {
             public var vertexFormat:[VertexFormat]
             public var discard:CullMode
             public var depth:DepthTest
+            public var depthWrite:Bool
             public var blend:Blend
             public init() {
                 primitive = .triangle
@@ -738,17 +722,92 @@ public class Tin {
                 scisor = Rect.zero
                 discard = .none
                 depth = .never
+                depthWrite = false
                 blend = Blend(enable:false)
             }
         }
-        func createLayout() {
-            // TODO: 
+        public struct Binding {
+            public enum Stage {
+                case none
+                case vertex
+                case fragment
+                var vulkan : VkShaderStageFlags {
+                    switch self {
+                        case .none:
+                        return 0
+                        case .vertex:
+                        return VK_SHADER_STAGE_VERTEX_BIT.rawValue
+                        case .fragment:
+                        return VK_SHADER_STAGE_FRAGMENT_BIT.rawValue
+                    }
+                }
+            }
+            public enum Desc {
+                case none
+                case uniform
+                case sampler
+                case imageSampler
+                var vulkan : VkDescriptorType {
+                    switch self {
+                        case .none:
+                        return VkDescriptorType(rawValue:0)
+                        case .uniform:
+                        return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
+                        case .sampler:
+                        return VK_DESCRIPTOR_TYPE_SAMPLER
+                        case .imageSampler:
+                        return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
+                    }
+                }
+            }
+            var stage:Stage
+            var desc:Desc
+            //var buffer:Buffer? // ???
+            public init(stage:Stage = .none,desc:Desc = .none) {
+                self.stage = stage
+                self.desc = desc
+            }
+        }
+        let renderPass : RenderPass
+        let states : States
+        let vertex : Shader
+        let fragment : Shader
+        var pipeline:VkPipeline?
+        public init?(renderpass:RenderPass,vertex:Shader,fragment:Shader,states:Pipeline.States,bindings:[Binding]) {
+            self.renderPass = renderpass
+            self.states = states
+            self.vertex = vertex
+            self.fragment = fragment
+            super.init(engine:renderpass.engine)
+            if !self.createPipeline(renderpass:renderpass,states:states,bindings:bindings) {
+                // TODO: destroy shaders
+                return nil
+            }
+        }
+        deinit {
+            if let p = pipeline {
+                ll.vkDestroyPipeline!(engine.logicalDevice,p,nil)
+            }
+        }
+        func createLayout(bindings bin:[Binding]) -> VkPipelineLayout? {
             var layout = VkPipelineLayoutCreateInfo()
             layout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO
             var descsl = [VkDescriptorSetLayout?]()
 
             var di = VkDescriptorSetLayoutCreateInfo()
-            // TODO: https://www.khronos.org/registry/vulkan/specs/1.0/man/html/VkDescriptorSetLayoutCreateInfo.html
+            di.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO
+            var bindings = [VkDescriptorSetLayoutBinding](repeating:VkDescriptorSetLayoutBinding(),count:bin.count)            
+            var i = 0
+            for b in bin {
+                bindings[i].binding = UInt32(i)
+                bindings[i].descriptorType = b.desc.vulkan
+                bindings[i].stageFlags = b.stage.vulkan
+                bindings[i].descriptorCount = (b.stage != .none) ? 1 : 0
+                i += 1
+            }
+            di.bindingCount = UInt32(bindings.count)
+            di.pBindings = UnsafePointer(bindings)
+
             var sl : VkDescriptorSetLayout?
             vkCreateDescriptorSetLayout(engine.logicalDevice,&di,nil,&sl)
             descsl.append(sl)
@@ -756,10 +815,10 @@ public class Tin {
             layout.setLayoutCount = UInt32(descsl.count)
             layout.pSetLayouts = UnsafePointer(descsl)
             var playout : VkPipelineLayout?
-            vkCreatePipelineLayout(engine.logicalDevice,&layout,nil,&playout)
-
+            vkCreatePipelineLayout(engine.logicalDevice,&layout,nil,&playout) 
+            return playout
         }
-        func createPipeline(renderpass:RenderPass,states:States) -> Bool {
+        func createPipeline(renderpass:RenderPass,states:States,bindings:[Binding]) -> Bool {
             var pipelineInfo = VkGraphicsPipelineCreateInfo()
             pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO
 
@@ -796,7 +855,7 @@ public class Tin {
             vertexInput.vertexAttributeDescriptionCount = UInt32(attributes.count)
             vertexInput.pVertexAttributeDescriptions = UnsafePointer(attributes)
             var binding = VkVertexInputBindingDescription()
-            binding.binding = 0
+            binding.binding = 0 // TODO: better, match the layout bindings
             binding.stride = UInt32(size)
             binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX
             vertexInput.vertexBindingDescriptionCount = 1
@@ -880,12 +939,6 @@ public class Tin {
             blend.blendConstants.2 = 1.0 // B
             blend.blendConstants.3 = 1.0 // A
             pipelineInfo.pColorBlendState = withUnsafePointer(to:&blend) {$0}
-            
-
-
-
-
-
 
             var dynamic = VkPipelineDynamicStateCreateInfo()
             dynamic.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO
@@ -894,11 +947,21 @@ public class Tin {
             //dynamic.dynamicStateCount = UInt32(dyn.count)
             //dynamic.pDynamicStates = UnsafePointer(dyn)
             pipelineInfo.pDynamicState = withUnsafePointer(to:&dynamic) {$0}
-            // TODO:
-            //pipelineInfo.layout
+            
+            pipelineInfo.layout = self.createLayout(bindings:bindings);
             pipelineInfo.renderPass = renderpass.renderpass
             pipelineInfo.subpass = 0 // TODO: ???
             return ll.vkCreateGraphicsPipelines!(engine.logicalDevice,nil,1,&pipelineInfo,nil,&pipeline) == VK_SUCCESS
+        }
+        public func draw(vertexBuffer:Buffer,binding:[Int],offset:Int = 0,count:Int) {
+            // https://github.com/SaschaWillems/Vulkan/blob/master/examples/dynamicuniformbuffer/dynamicuniformbuffer.cpp
+            if let cb = renderPass.cb?.cb {
+                ll.vkCmdBindPipeline!(cb,VK_PIPELINE_BIND_POINT_GRAPHICS,pipeline!)
+                let vbufs:[VkBuffer?] = [vertexBuffer.buffer]
+                let offsets:[UInt64] = [UInt64(vertexBuffer.size)]
+                ll.vkCmdBindVertexBuffers!(cb,0,1, UnsafePointer(UnsafeMutablePointer(mutating:vbufs)),UnsafePointer(offsets))
+                ll.vkCmdDraw!(cb,UInt32(count),1,UInt32(offset),0)
+            }
         }
     }
     public class Buffer : TinNode {
@@ -909,7 +972,7 @@ public class Tin {
             public static let transferDst = Usage(rawValue: Int(VK_BUFFER_USAGE_TRANSFER_DST_BIT.rawValue))
             public static let uniformTexel = Usage(rawValue: Int(VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT.rawValue))
             public static let storageTexel = Usage(rawValue: Int(VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT.rawValue))
-            public static let UniformBuffer = Usage(rawValue: Int(VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT.rawValue))
+            public static let uniformBuffer = Usage(rawValue: Int(VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT.rawValue))
             public static let stotageBuffer = Usage(rawValue: Int(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT.rawValue))
             public static let indexBuffer = Usage(rawValue: Int(VK_BUFFER_USAGE_INDEX_BUFFER_BIT.rawValue))
             public static let vertexBuffer = Usage(rawValue: Int(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT.rawValue))
@@ -921,7 +984,7 @@ public class Tin {
         var buffer:VkBuffer?
         var memory:VkDeviceMemory?
         public private(set) var size:Int
-        public init?(engine:Tin,size:Int,usage:Usage=[.UniformBuffer,.indexBuffer,.vertexBuffer]) {
+        public init?(engine:Tin,size:Int,usage:Usage=[.uniformBuffer,.indexBuffer,.vertexBuffer]) {
             self.size = size
             super.init(engine:engine)
             var ci = VkBufferCreateInfo()
@@ -1122,13 +1185,13 @@ public class Tin {
             destroySwapchain()
             _ = createSwapchain(width:width,height:height)
         }
-        func aquire() -> Bool {
+        func aquire() -> Tin.Image? {
             vkQueueWaitIdle(engine.queue)
             imageIndex = (imageIndex + 1) & 1
             if ll.vkAcquireNextImageKHR!(engine.logicalDevice,swapchain,100000000,semaphore?.semaphore,nil,&imageIndex) == VK_SUCCESS {
-                return true
+                return self.images[Int(imageIndex)]
             }
-            return false
+            return nil
         }
         func present() -> Bool {
             if let queue = engine.queue {
@@ -1161,6 +1224,7 @@ public class Tin {
             if ll.vkCreateFramebuffer!(engine.logicalDevice, &fbCreateInfo, nil, &framebuffer) != VK_SUCCESS {
                 return nil
             }
+            self.framebuffer = framebuffer
         }
         init?(renderpass:RenderPass, texture:Texture) {
             super.init(engine:texture.engine)
@@ -1176,6 +1240,7 @@ public class Tin {
             if ll.vkCreateFramebuffer!(engine.logicalDevice, &fbCreateInfo, nil, &framebuffer) != VK_SUCCESS {
                 return nil
             }
+            self.framebuffer = framebuffer
         }
         deinit {
             ll.vkDestroyFramebuffer!(engine.logicalDevice,framebuffer,nil)
@@ -1227,7 +1292,19 @@ public class Tin {
         public var width : Float
         public var height : Float
         public static var zero : Rect {
-            return Rect(x:0,y:0,width:0,height:0)            
+            return Rect(x:0.0,y:0.0,width:0.0,height:0.0)
+        }
+        public init(x:Float,y:Float,w:Float,h:Float) {
+            self.x = x
+            self.y = y
+            self.width = w
+            self.height = h
+        }
+        public init(x:Float,y:Float,width:Float,height:Float) {
+            self.x = x
+            self.y = y
+            self.width = width
+            self.height = height
         }
     }
     public struct Box {
@@ -1239,6 +1316,14 @@ public class Tin {
         public var depth : Float
         public static var zero : Box {
             return Box(x:0,y:0,z:0,width:0,height:0,depth:0)            
+        }
+        public init(x:Float,y:Float,z:Float,width:Float,height:Float,depth:Float) {
+            self.x = x
+            self.y = y
+            self.z = z
+            self.width = width
+            self.height = height
+            self.depth = depth
         }
     }
 

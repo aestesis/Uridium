@@ -41,7 +41,7 @@ open class Window {
         var screenp:Int32 = 0
         connection = xcb_connect(nil, &screenp)
         let error = xcb_connection_has_error(connection)
-        if error > 0 {
+        if error != 0 {
             NSLog("xcb connection error: \(error)")
             return nil
         }
@@ -87,8 +87,8 @@ open class Window {
                 free(event)
             }
             if let engine = engine, let swapchain = engine.swapchain {
-                if swapchain.aquire() {
-                    render()
+                if let image = swapchain.aquire() {
+                    render(to:image)
                     _ = swapchain.present()
                 }
             }
@@ -97,7 +97,7 @@ open class Window {
         engine = nil
         xcb_destroy_window(connection, windowId)
     }
-    open func render() {
+    open func render(to:Tin.Image) {
     }
     var lastFrame = Double(Date.timeIntervalSinceReferenceDate)
     var fps = 60.0
