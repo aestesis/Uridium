@@ -398,7 +398,7 @@ public class Tin {
         var renderpass:VkRenderPass?
         var cb:CommandBuffer?
         var framebuffer:Framebuffer?
-        public init?(to image:Image) {  // TODO: add clear color
+        public init?(to image:Image,clearColor:[Float]? = nil) {  // TODO: add clear color
             super.init(engine:image.engine)
             var colorAttachment = VkAttachmentDescription()
             colorAttachment.format = VK_FORMAT_B8G8R8A8_UNORM
@@ -427,9 +427,9 @@ public class Tin {
             }
             framebuffer = Framebuffer(renderpass:self,image:image) 
             // TODO: bind framebuffer ???
-            begin(width:image.width,height:image.height,framebuffer:framebuffer!.framebuffer)
+            begin(width:image.width,height:image.height,framebuffer:framebuffer!.framebuffer,clearColor:clearColor)
         }
-        public init?(to texture:Texture) {  // TODO: add clear color
+        public init?(to texture:Texture,clearColor:[Float]? = nil) {  // TODO: add clear color
             super.init(engine:texture.engine)
             var colorAttachment = VkAttachmentDescription()
             colorAttachment.format = VK_FORMAT_B8G8R8A8_UNORM
@@ -458,14 +458,14 @@ public class Tin {
             }
             framebuffer = Framebuffer(renderpass:self,texture:texture) 
             // TODO: bind framebuffer ???
-            begin(width:texture.width,height:texture.height,framebuffer:framebuffer!.framebuffer)
+            begin(width:texture.width,height:texture.height,framebuffer:framebuffer!.framebuffer,clearColor:clearColor)
         }
         deinit {
             if renderpass != nil {
                 ll.vkDestroyRenderPass!(engine.logicalDevice,renderpass,nil)
             }
         }
-        func begin(width:Int,height:Int,framebuffer:VkFramebuffer?) {
+        func begin(width:Int,height:Int,framebuffer:VkFramebuffer?,clearColor:[Float]?) {
             cb = CommandBuffer(engine:engine)
             var rp_begin = VkRenderPassBeginInfo()
             rp_begin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO
@@ -477,13 +477,15 @@ public class Tin {
             rp_begin.renderArea.extent.width = UInt32(width)
             rp_begin.renderArea.extent.height = UInt32(height)
             var clear = [VkClearValue](repeating:VkClearValue(), count:2)
-            clear[0].color.uint32.0 = 0
-            clear[0].color.uint32.1 = 0
-            clear[0].color.uint32.2 = 0
-            clear[0].color.uint32.3 = 0
-            clear[1].depthStencil.depth = 1.0
-            rp_begin.clearValueCount = UInt32(clear.count)
-            rp_begin.pClearValues = UnsafePointer(UnsafeMutablePointer(&clear))
+            if let c = clearColor {
+                clear[0].color.float32.0 = c[0]
+                clear[0].color.float32.1 = c[1]
+                clear[0].color.float32.2 = c[2]
+                clear[0].color.float32.3 = c[3]
+                clear[1].depthStencil.depth = 1.0
+                rp_begin.clearValueCount = UInt32(clear.count)
+                rp_begin.pClearValues = UnsafePointer(UnsafeMutablePointer(&clear))
+            }
             ll.vkCmdBeginRenderPass!(cb!.cb, &rp_begin, VK_SUBPASS_CONTENTS_INLINE);
         }
         func end() {
@@ -819,20 +821,20 @@ public class Tin {
             return playout
         }
         func createPipeline(renderpass:RenderPass,states:States,bindings:[Binding]) -> Bool {
+            let shaderEntryPoint = Array("main".utf8)   
             var pipelineInfo = VkGraphicsPipelineCreateInfo()
             pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO
-
             var stages = [VkPipelineShaderStageCreateInfo]()
             var infoVertex = VkPipelineShaderStageCreateInfo()
             infoVertex.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO
             infoVertex.stage = VK_SHADER_STAGE_VERTEX_BIT
-            infoVertex.pName = UnsafeRawPointer("vertex").assumingMemoryBound(to:Int8.self)
+            infoVertex.pName = UnsafeRawPointer(shaderEntryPoint).assumingMemoryBound(to: Int8.self)
             infoVertex.module = self.vertex.shader
             stages.append(infoVertex)
             var infoFragment = VkPipelineShaderStageCreateInfo()
             infoFragment.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO
             infoFragment.stage = VK_SHADER_STAGE_FRAGMENT_BIT
-            infoFragment.pName = UnsafeRawPointer("fragment").assumingMemoryBound(to:Int8.self)
+            infoFragment.pName = UnsafeRawPointer(shaderEntryPoint).assumingMemoryBound(to:Int8.self)
             infoFragment.module = self.fragment.shader
             stages.append(infoFragment)
             pipelineInfo.stageCount = UInt32(stages.count)
@@ -1001,6 +1003,12 @@ public class Tin {
             allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO
             allocInfo.allocationSize = memRequirements.size
             allocInfo.memoryTypeIndex = 0
+            if let i = engine.device?.memoryTypeIndex(typeBits:memRequirements.memoryTypeBits,requirements: VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT.rawValue | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT.rawValue) {
+                allocInfo.memoryTypeIndex = i
+            } else {
+                // TODO: destroy buffer
+                return nil
+            }
             if ll.vkAllocateMemory!(engine.logicalDevice, &allocInfo, nil, &memory) != VK_SUCCESS {
                 return nil
             }
