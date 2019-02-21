@@ -1,4 +1,4 @@
-// swift-tools-version:4.0
+// swift-tools-version:4.2
 
 import PackageDescription
 
@@ -8,11 +8,11 @@ let package = Package(
         .library(name: "Uridium",targets: ["Uridium"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/aestesis/xcb.git", from:"1.0.0"),
-        .package(url: "https://github.com/aestesis/Vulkan.git", from:"1.0.4")
+        .package(url: "https://github.com/aestesis/xcb.git", from:"1.0.1"),
+        .package(url: "https://github.com/aestesis/Vulkan.git", from:"1.0.6")
     ],
     targets: [
-        .target(name: "Uridium",dependencies: [])
+        .target(name: "Uridium",dependencies: ["xcb","Vulkan"])
     ]
 )
 
